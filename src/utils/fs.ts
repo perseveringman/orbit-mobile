@@ -9,8 +9,28 @@
  *
  * @see docs/ARCHITECTURE.md §5
  *
- * TODO(M1): DOCUMENTS_DIR + ensureDir
  * TODO(M2): 真正的 fsync 实现
  */
 
-export const __stub__ = true;
+import * as FileSystem from 'expo-file-system/legacy';
+
+export const DOCUMENTS_DIR = FileSystem.documentDirectory;
+
+export function requireDocumentsDir(): string {
+  if (!DOCUMENTS_DIR) {
+    throw new Error('filesystem.document_directory_unavailable');
+  }
+  return DOCUMENTS_DIR;
+}
+
+export async function ensureDir(path: string): Promise<void> {
+  const info = await FileSystem.getInfoAsync(path);
+  if (!info.exists) {
+    await FileSystem.makeDirectoryAsync(path, { intermediates: true });
+  }
+}
+
+export function fsync(path: string): Promise<void> {
+  void path;
+  return Promise.resolve();
+}

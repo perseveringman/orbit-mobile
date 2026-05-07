@@ -7,7 +7,18 @@
  *
  * 用 expo-crypto 的 randomUUID，不引 nanoid（DATA-MODEL §8 决策）。
  *
- * TODO(M1): 实现三个函数
  */
 
-export const __stub__ = true;
+import * as Crypto from 'expo-crypto';
+
+export function generateCaptureId(): string {
+  return `mob_cap_${Crypto.randomUUID()}`;
+}
+
+export function generateSessionId(): string {
+  return Crypto.randomUUID();
+}
+
+export function generateDeviceId(): string {
+  return Crypto.randomUUID();
+}

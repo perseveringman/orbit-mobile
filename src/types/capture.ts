@@ -18,7 +18,6 @@ export type SyncState =
 
 export type CaptureKind = 'thought' | 'voice' | 'photo' | 'share' | 'mixed';
 
-// TODO(M1): 按 DATA-MODEL §1.1 填完整 CaptureRow 字段
 export interface CaptureRow {
   id: string;
   created_at: string;
@@ -44,7 +43,6 @@ export interface CaptureRow {
   schema_version: number;
 }
 
-// TODO(M1): 按 DATA-MODEL §1.2 定义 SyncEventRow
 export interface SyncEventRow {
   id: number;
   capture_id: string;
@@ -53,18 +51,16 @@ export interface SyncEventRow {
   details_json: string | null;
 }
 
-// TODO(M1): 按 DATA-MODEL §1.3 定义 DraftRow
 export interface DraftRow {
   session_id: string;
   content: string;
   tags_json: string | null;
   attachments_json: string | null;
-  kind_hint: string | null;
+  kind_hint: CaptureKind | null;
   created_at: string;
   updated_at: string;
 }
 
-// 按 DATA-MODEL §1.4 定义 DeviceInfoRow（KV）
 export interface DeviceInfoRow {
   key: string;
   value: string;

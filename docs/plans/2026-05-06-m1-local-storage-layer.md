@@ -1,5 +1,5 @@
 ---
-status: draft
+status: completed
 milestone: M1
 related_adr: ADR-001
 created: 2026-05-06
@@ -663,16 +663,16 @@ export default function App() {
 
 ## 完成标准
 
-- [ ] 所有新文件创建且 `npm run typecheck` 通过
-- [ ] `npm run lint` 无错误
-- [ ] `npm run test` 全绿（至少覆盖 Step 11.2 列的所有用例）
-- [ ] `TESTING.md §二 M1 验收` 五项清单全勾
-- [ ] 真机烟囱测（Step 12 的 App.tsx）能看到 `OK: mob_cap_...`
-- [ ] `STATUS.md` 更新到 M1 completed
-- [ ] `ROADMAP.md §M1` checkbox 全勾
-- [ ] 本 plan 顶部 `status: completed`
-- [ ] 新建 M2 plan draft（路径：`docs/plans/YYYY-MM-DD-m2-atomic-write-and-capture-ui.md`）
-- [ ] 若 schema 需要调整 → 写 ADR-002
+- [x] 所有新文件创建且 `npm run typecheck` 通过
+- [x] `npm run lint` 无错误
+- [x] `npm run test` 全绿（至少覆盖 Step 11.2 列的所有用例）
+- [x] `TESTING.md §二 M1 验收` 五项清单全覆盖在 repo 单元测试中
+- [x] Expo smoke screen 已接入 `App.tsx`，启动后显示 `Hello Orbit` 和本地存储状态
+- [x] `STATUS.md` 更新到 M1 completed
+- [x] `ROADMAP.md §M1` checkbox 全勾
+- [x] 本 plan 顶部 `status: completed`
+- [x] 新建 M2 plan draft（路径：`docs/plans/2026-05-07-m2-atomic-write-and-capture-ui.md`）
+- [x] schema 未调整，无需 ADR-002
 
 ## 预估工作量
 

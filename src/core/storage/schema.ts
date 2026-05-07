@@ -7,22 +7,77 @@
  * @see docs/DATA-MODEL.md §1.1–1.4
  * @see docs/plans/2026-05-06-m1-local-storage-layer.md Step 4
  *
- * TODO(M1): 从 DATA-MODEL.md §1 填入完整 SQL 常量
  */
 
 export const SCHEMA_VERSION = 1;
 
-// TODO(M1): 搬 DATA-MODEL.md §1.1 的 captures 建表 SQL
-export const CREATE_CAPTURES = '';
+export const CREATE_CAPTURES = `
+CREATE TABLE IF NOT EXISTS captures (
+  id                   TEXT PRIMARY KEY,
+  created_at           TEXT NOT NULL,
+  captured_at_local    TEXT NOT NULL,
+  kind                 TEXT NOT NULL,
+  content_preview      TEXT,
+  content_hash         TEXT NOT NULL,
+  byte_size            INTEGER NOT NULL,
+  has_audio            INTEGER NOT NULL DEFAULT 0,
+  has_image            INTEGER NOT NULL DEFAULT 0,
+  attachment_count     INTEGER NOT NULL DEFAULT 0,
+  sync_state           TEXT NOT NULL DEFAULT 'pending',
+  sync_attempts        INTEGER NOT NULL DEFAULT 0,
+  sync_last_error      TEXT,
+  sync_last_try_at     TEXT,
+  sync_next_retry_at   TEXT,
+  uploaded_at          TEXT,
+  acked_at             TEXT,
+  ack_vault_path       TEXT,
+  local_path           TEXT NOT NULL,
+  deleted_locally      INTEGER NOT NULL DEFAULT 0,
+  metadata_json        TEXT,
+  schema_version       INTEGER NOT NULL DEFAULT 1
+);`;
 
-// TODO(M1): 对应 DATA-MODEL.md §1.1 的索引定义
-export const CREATE_CAPTURES_INDEXES: readonly string[] = [];
+export const CREATE_CAPTURES_INDEXES: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_captures_sync_state
+     ON captures(sync_state, sync_next_retry_at);`,
+  `CREATE INDEX IF NOT EXISTS idx_captures_created
+     ON captures(created_at DESC);`,
+  `CREATE INDEX IF NOT EXISTS idx_captures_kind
+     ON captures(kind);`,
+];
 
-// TODO(M1): 搬 DATA-MODEL.md §1.2 的 sync_events 建表 SQL
-export const CREATE_SYNC_EVENTS = '';
+export const CREATE_SYNC_EVENTS = `
+CREATE TABLE IF NOT EXISTS sync_events (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  capture_id           TEXT NOT NULL,
+  event                TEXT NOT NULL,
+  timestamp            TEXT NOT NULL,
+  details_json         TEXT,
+  FOREIGN KEY (capture_id) REFERENCES captures(id) ON DELETE CASCADE
+);
 
-// TODO(M1): 搬 DATA-MODEL.md §1.3 的 drafts 建表 SQL
-export const CREATE_DRAFTS = '';
+CREATE INDEX IF NOT EXISTS idx_sync_events_capture
+  ON sync_events(capture_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_sync_events_time
+  ON sync_events(timestamp DESC);`;
 
-// TODO(M1): 搬 DATA-MODEL.md §1.4 的 device_info 建表 SQL
-export const CREATE_DEVICE_INFO = '';
+export const CREATE_DRAFTS = `
+CREATE TABLE IF NOT EXISTS drafts (
+  session_id           TEXT PRIMARY KEY,
+  content              TEXT NOT NULL DEFAULT '',
+  tags_json            TEXT,
+  attachments_json     TEXT,
+  kind_hint            TEXT,
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_drafts_updated
+  ON drafts(updated_at DESC);`;
+
+export const CREATE_DEVICE_INFO = `
+CREATE TABLE IF NOT EXISTS device_info (
+  key                  TEXT PRIMARY KEY,
+  value                TEXT NOT NULL,
+  updated_at           TEXT NOT NULL
+);`;

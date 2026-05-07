@@ -2,7 +2,7 @@
 
 > iOS Capture front-post for [Orbit](https://github.com/) — zero-friction, lossless, local-first capture of your fleeting thoughts, synced back to your desktop Second Brain via iCloud Drive.
 
-**Status**: 🚧 Design phase / M0 — documentation & skeleton
+**Status**: 🚧 Pre-alpha / M1 completed — local storage layer ready
 
 ---
 
@@ -54,9 +54,9 @@ See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for the three-layer storage
 
 ## Current status
 
-Documentation-only. No runnable code yet.
+Expo TypeScript project + local storage layer are in place.
 
-Next milestone: M1 — local storage layer (SQLite schema + repos).
+Next milestone: M2 — atomic write protocol + text Capture MVP.
 
 Full status: [`docs/STATUS.md`](./docs/STATUS.md)
 

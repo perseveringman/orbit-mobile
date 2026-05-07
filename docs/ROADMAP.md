@@ -10,11 +10,11 @@
 ## 里程碑总览
 
 ```
-  M0: 文档与骨架 (当前)
-     ↓
-  M1: 本地存储层     ← 本地优先的基础
-     ↓
-  M2: 原子写入 + 文本 Capture  ← 第一个可用形态
+     M0: 文档与骨架 (done)
+      ↓
+   M1: 本地存储层 (done) ← 本地优先的基础
+      ↓
+   M2: 原子写入 + 文本 Capture (next) ← 第一个可用形态
      ↓
   M3: 同步引擎 + iCloud Bridge  ← 数据能到 Mac
      ↓
@@ -35,7 +35,7 @@
 
 ---
 
-## M0 — 文档与项目骨架（当前）
+## M0 — 文档与项目骨架（done）
 
 **目标**：让任何 AI 接手都知道做什么、怎么做、做到哪。
 
@@ -52,26 +52,26 @@
 - [x] `docs/TESTING.md` 验收测试清单
 - [x] `docs/DEVELOPMENT.md` 环境搭建指南
 - [x] `docs/open-questions.md` 未定事项
-- [ ] Expo 项目初始化 (`npx create-expo-app`) — **M1 开始时做**
-- [ ] 目录骨架 stub 文件 — 占位 + 导出空壳，让 import 能通
-- [ ] TypeScript 配置 + ESLint + Prettier
-- [ ] Git 仓库初始化 + 基础 `.gitignore`
+- [x] Expo 项目初始化 (`npx create-expo-app`) — M1 开始时完成
+- [x] 目录骨架 stub 文件 — 占位 + 导出空壳，让 import 能通
+- [x] TypeScript 配置 + ESLint + Prettier
+- [x] Git 仓库初始化 + 基础 `.gitignore`
 
 ---
 
-## M1 — 本地存储层
+## M1 — 本地存储层（done）
 
 **目标**：把 Layer 2 写扎实——SQLite schema、repo 层、基础 CRUD。**没 UI**。
 
-- [ ] `src/core/storage/schema.ts` — 四张表建表 SQL
-- [ ] `src/core/storage/db.ts` — SQLite 开库 + migration 框架
-- [ ] `src/core/storage/captures-repo.ts` — captures 表 CRUD
-- [ ] `src/core/storage/drafts-repo.ts` — drafts 表 CRUD
-- [ ] `src/core/storage/events-repo.ts` — sync_events 表 CRUD
-- [ ] `src/utils/fs.ts` — 安全文件操作（含 fsync 封装）
-- [ ] `src/utils/id.ts` — uuid / nanoid 封装
-- [ ] `src/utils/logger.ts` — 日志工具
-- [ ] 单元测试：repo 层 CRUD + 事务回滚
+- [x] `src/core/storage/schema.ts` — 四张表建表 SQL
+- [x] `src/core/storage/db.ts` — SQLite 开库 + migration 框架
+- [x] `src/core/storage/captures-repo.ts` — captures 表 CRUD
+- [x] `src/core/storage/drafts-repo.ts` — drafts 表 CRUD
+- [x] `src/core/storage/events-repo.ts` — sync_events 表 CRUD
+- [x] `src/utils/fs.ts` — 安全文件操作（含 fsync 封装）
+- [x] `src/utils/id.ts` — uuid / nanoid 封装
+- [x] `src/utils/logger.ts` — 日志工具
+- [x] 单元测试：repo 层 CRUD + 事务回滚
 
 **验收**：能在 Expo app 启动后打开 SQLite，读写四张表，断言成功。
 

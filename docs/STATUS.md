@@ -3,29 +3,40 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-06（项目初始化，仅文档）  
-**Last updater**: BoxAI (初始化)  
-**Current milestone**: **M0 — 文档与项目骨架**  
-**Next milestone**: M1 — 本地存储层
+**Last updated**: 2026-05-07（M0 骨架 + M1 本地存储层完成）
+**Last updater**: Copilot
+**Current milestone**: **M1 — 本地存储层 completed**
+**Next milestone**: M2 — 原子写入 + 文本 Capture MVP
 
 ---
 
 ## 🔴 给下一个 AI 的最重要信息
 
-**当前项目只有文档，还没有任何可运行代码。**  
-如果你接手，你的第一个大任务是完成 M0 的"项目骨架"部分（Expo 初始化）+ 开始 M1。
+**当前项目已经是可运行的 Expo SDK 55 TypeScript 项目，并完成 M1 本地存储层。**
 
-**开始前必读**（按顺序）：
+下一步请从 **M2 原子写入 + 文本 Capture MVP** 开始，优先实现：
+
+1. `src/core/capture/manifest.ts`
+2. `src/core/capture/hash.ts`
+3. `src/core/capture/atomic-write.ts`
+4. `src/core/reconcile/reconcile-job.ts`
+5. 最小文本 Capture UI
+
+开始前必读（按顺序）：
+
 1. `AGENTS.md`
 2. `docs/VISION.md`
 3. 本文件（你现在读的）
-4. `docs/ARCHITECTURE.md`（动代码前必读）
-5. `docs/ROADMAP.md`（确认你的任务在哪一步）
+4. `docs/ARCHITECTURE.md` §5 原子写入协议
+5. `docs/DATA-MODEL.md` §2 manifest schema
+6. `docs/plans/2026-05-07-m2-atomic-write-and-capture-ui.md`
 
-**动代码前必做**：
-- [ ] 确认任务方向与 VISION 一致
-- [ ] 确认当前不会破坏 ARCHITECTURE 里定义的原则
-- [ ] 读完这个文件你知道接下来应该做什么
+**重要实现备注**：
+
+- M1 仅实现 SQLite schema / migration / repo / 基础工具，不包含真正的 `captures/<id>/` 原子写入；那是 M2。
+- `src/utils/fs.ts` 的 `fsync()` 目前是 noop，占位给 M2；真正原子写入前必须补 native fsync 或等价方案。
+- `src/utils/logger.ts` 目前用读-拼-写模拟 append，M3 前必须替换为真正 append。
+- `App.tsx` 是 M1 smoke screen：显示 `Hello Orbit` 并写入一条本地测试 capture。M2 会用真实 Capture UI 替换。
 
 ---
 
@@ -49,33 +60,60 @@
 - [x] 2026-05-06 源码目录骨架 + 占位文件
 - [x] 2026-05-06 `README.md`
 - [x] 2026-05-06 `.gitignore`
-
-### ⏳ 未完成（M0 剩余）
-
-- [ ] Expo 项目实际 bootstrap (`npx create-expo-app . --template blank-typescript`)
-  - **注意**：因为目录非空，需要用 `--template` 先在临时目录生成再合并，或使用 `create-expo --yes` 在空目录做
-  - 由下一个接手的 AI 在开始 M1 时做
-- [ ] `package.json` + `app.json` + `tsconfig.json` + `.eslintrc`
-- [ ] 首次 `npm install` 确认依赖装好
-- [ ] iOS Entitlements 模板（iCloud Container 占位）
-- [ ] Git 仓库 `git init` + 首次 commit
+- [x] 2026-05-07 Expo 项目实际 bootstrap（SDK 55 blank TypeScript）
+- [x] 2026-05-07 `package.json` + `app.json` + `tsconfig.json` + ESLint flat config + Prettier
+- [x] 2026-05-07 首次 `npm install` 完成
+- [x] 2026-05-07 iOS bundle identifier 占位：`com.orbit.capture`
+- [x] 2026-05-06 Git 仓库初始化 + 首次 commit（`init`）
 
 ### 🎯 M0 完成标准
 
 1. 所有文档齐全（已完成）
-2. Expo 项目能 `npm start` 起来（待做）
-3. 能在模拟器看到"Hello Orbit"占位屏（待做）
+2. Expo 项目能 `npm start` 起来（已具备脚本与配置）
+3. 能在模拟器看到"Hello Orbit"占位屏（`App.tsx` 已实现）
 
 ---
 
-## 后续里程碑（未开始）
+## M1 进度：本地存储层
+
+### ✅ 已完成
+
+- [x] `src/types/capture.ts`：`CaptureRow` / `DraftRow` / `SyncEventRow` / `DeviceInfoRow`
+- [x] `src/core/storage/schema.ts`：四张表建表 SQL + 索引
+- [x] `src/core/storage/migrations/001_initial.ts`
+- [x] `src/core/storage/migrations/index.ts`：migration runner + rollback 测试入口
+- [x] `src/core/storage/db.ts`：`openDb` / `getDb` / `closeDb` / `transaction`
+- [x] `src/core/storage/device-info.ts`：KV helper + `device_id` init
+- [x] `src/core/storage/captures-repo.ts`：captures CRUD + sync state patch + soft delete + count
+- [x] `src/core/storage/drafts-repo.ts`：draft upsert/get/list/delete
+- [x] `src/core/storage/events-repo.ts`：sync event append/list/gc
+- [x] `src/utils/id.ts`：`expo-crypto` UUID wrapper
+- [x] `src/utils/fs.ts`：Documents dir / ensureDir / fsync signature
+- [x] `src/utils/logger.ts`：NDJSON logger
+- [x] `src/utils/time.ts`：UTC/local ISO helpers
+- [x] `tests/setup/in-memory-db.ts`：`better-sqlite3` async test adapter
+- [x] Repo 层单元测试：captures / drafts / events
+- [x] Migration 单元测试：0 → 1、幂等、事务回滚
+
+### 🎯 M1 验收
+
+- [x] SQLite 文件创建路径由 `expo-sqlite` 打开 `orbit.db`
+- [x] 四张表存在，`schema_version` 写入 `device_info`
+- [x] repo 层单元测试全通过
+- [x] 事务回滚行为正确
+- [x] migration 从 0 → 1 正确
+
+---
+
+## 后续里程碑
 
 详见 [`ROADMAP.md`](./ROADMAP.md)。
 
 | 里程碑 | 状态 | 依赖 |
 |---|---|---|
-| M1 本地存储层 | not started | M0 骨架完成 |
-| M2 原子写入 + 文本 Capture MVP | not started | M1 |
+| M0 文档与项目骨架 | completed | - |
+| M1 本地存储层 | completed | M0 |
+| M2 原子写入 + 文本 Capture MVP | next | M1 |
 | M3 同步引擎 + iCloud Bridge | not started | M2 |
 | M4 Mac 端 ingest 接入 | not started | M3 |
 | M5 语音 Capture | not started | M4 |
@@ -91,16 +129,17 @@
 
 ## 已有 Plans
 
-- [2026-05-06 M1 本地存储层](./plans/2026-05-06-m1-local-storage-layer.md) — **draft**
+- [2026-05-06 M1 本地存储层](./plans/2026-05-06-m1-local-storage-layer.md) — **completed**
+- [2026-05-07 M2 原子写入 + 文本 Capture MVP](./plans/2026-05-07-m2-atomic-write-and-capture-ui.md) — **draft**
 
 ---
 
 ## 已知风险 / 待观察
 
-暂无代码实施，以下风险源于架构假设，需要实施中验证：
-
 | 风险 | 说明 | 缓解计划 |
 |---|---|---|
+| `fsync()` 尚未真实实现 | M1 只保留签名，M2 原子写入需要真正落盘保证 | M2 开始先做 native fsync / 等价方案 spike |
+| logger append 低效 | 当前 `expo-file-system/legacy` 无 append，读-拼-写随日志膨胀变慢 | M3 前替换为真正 append |
 | iCloud 同步延迟不可控 | Apple 不承诺秒级 | UI 层透明展示状态，不让用户误以为卡住 |
 | `expo-speech-recognition` 稳定性 | 新 API，实机可能有坑 | M5 开工时先做 spike，不行就自写 native module |
 | App Group 共享存储复杂度 | Share Extension 需要 | M7 时评估，若太复杂可先用简单 iCloud 中转 |
@@ -110,25 +149,10 @@
 
 ## 如何更新本文件
 
-**每次 commit 前自问**：
+每次 commit 前自问：
 
 1. 是否勾选了新完成的 checkbox？
-2. 是否更新了"Last updated" / "Last updater"？
+2. 是否更新了 "Last updated" / "Last updater"？
 3. 是否当前 milestone 需要推进？
 4. 是否引入了新的风险要记录？
 5. "给下一个 AI 的最重要信息"部分是否还准确？
-
-**写给下一个 AI 的话**（每次接手时自己改）：
-
-> 例如：
-> > 下一步是 M1 的 SQLite schema。注意 `drafts` 表的 attachments_json 字段存的是 JSON 数组，不是 JSON 对象。
-> > 还有，我在 ADR-002 里决定不用 nanoid 而用 expo-crypto，记得别引入 nanoid 依赖。
-��新的风险要记录？
-5. "给下一个 AI 的最重要信息"部分是否还准确？
-
-**写给下一个 AI 的话**（每次接手时自己改）：
-
-> 例如：
-> > 下一步是 M1 的 SQLite schema。注意 `drafts` 表的 attachments_json 字段存的是 JSON 数组，不是 JSON 对象。
-> > 还有，我在 ADR-002 里决定不用 nanoid 而用 expo-crypto，记得别引入 nanoid 依赖。
--crypto，记得别引入 nanoid 依赖。
