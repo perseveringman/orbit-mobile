@@ -11,7 +11,7 @@
 |---|---|---|
 | Node.js | 20+ | 开发 |
 | pnpm 或 npm | 最新 | 包管理 |
-| Xcode | 15+ | iOS 构建 |
+| Xcode | 16+ recommended | iOS 构建（Expo SDK 54 / RN 0.81 在 Xcode 15.1 上 `pod install` 会报 `Please upgrade XCode`） |
 | iOS Simulator | 17+ | 调试 |
 | 真机 iPhone | iOS 16+ | iCloud 真实测试（必须） |
 | Apple Developer 账号 | 免费账号足够 | iCloud entitlement |
@@ -126,7 +126,7 @@ npm install -D \
 - `modules/orbit-durable-fs/`：真实 `fsync()` / native append，支撑本地原子写入
 - `modules/orbit-icloud-bridge/`：iCloud Drive container / upload / ACK 通道
 
-**Expo Go 不包含这些自定义 native module，因此 M2+ 不能再用 Expo Go 调试。** 如果看到 `Cannot find native module 'OrbitDurableFS'`，说明正在用 Expo Go 或尚未重新编译 Development Build。
+**Expo Go 不包含这些自定义 native module，因此 M2+ 不能再用 Expo Go 调试。** 如果看到 `Cannot find native module 'OrbitDurableFS'`，说明正在用 Expo Go、尚未重新编译 Development Build，或本地 module podspec 没有被 CocoaPods autolink。
 
 首次生成并运行 iOS Development Build：
 
@@ -145,6 +145,8 @@ npx expo run:ios --device
 - Share Extension / WidgetKit（M7/M8）：需要保留并维护生成的 `ios/` 工程
 
 前置要求：完整 Xcode、CocoaPods、真机调试时 Xcode 登录 Apple ID。
+
+已知环境阻塞：当前机器只有 `/Applications/Xcode.app` 15.1，`npx expo run:ios` 会在 `pod install` 阶段失败并提示 `Please upgrade XCode`。升级 Xcode 后重新运行 `npx expo run:ios`。
 
 ### 3.2 常用脚本
 

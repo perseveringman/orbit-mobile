@@ -1,6 +1,7 @@
 {
   "platforms": ["apple"],
   "apple": {
+    "podspecPath": "./ios/OrbitICloudBridge.podspec",
     "modules": ["OrbitICloudBridgeModule"]
   }
 }
