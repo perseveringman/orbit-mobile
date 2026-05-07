@@ -3,10 +3,10 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-07（M3 同步引擎 + iCloud Bridge 实现）
+**Last updated**: 2026-05-07（M4 Mac 端 ingest 接入实现）
 **Last updater**: Copilot
-**Current milestone**: **M3 — 同步引擎 + iCloud Bridge implemented**
-**Next milestone**: M4 — Mac 端 ingest 接入（开工前需先对齐独立 PR 策略）
+**Current milestone**: **M4 — Mac 端 ingest 接入 implemented**
+**Next milestone**: M5 — 语音 Capture
 
 ---
 
@@ -14,24 +14,24 @@
 
 **当前项目已经是可运行的 Expo SDK 54 TypeScript 项目，并完成 M3：文本 Capture 本地闭环 + iCloud Drive 同步引擎。**
 
-下一步进入 **M4 Mac 端 ingest 接入** 前，必须先和用户确认 Orbit 主仓库的分支 / PR / commit 策略，然后再改 `/Users/ryanbzhou/Developer/vibe/new-orbit`。
+下一步进入 **M5 语音 Capture**，继续遵守附件原始数据无损保留：实时转写只是派生文本，原始 `.m4a` 必须作为 attachment 保留。
 
-M4 优先实现：
+M5 优先实现：
 
-1. `src/main/capture/mobile_inbound/watcher.ts`
-2. manifest ingest + sha256 校验
-3. processed / failed 目录协议
-4. iOS ACK / failed 回写识别
-5. 端到端 demo：手机记 → Mac 自动收到
+1. 录音权限与录音器
+2. 原始 `.m4a` attachment 写入五阶段原子协议
+3. iOS speech transcription（或可替换 native wrapper）
+4. 录音中断/杀进程恢复
+5. UI 按住说话 + 转写预览
 
 开始前必读（按顺序）：
 
 1. `AGENTS.md`
 2. `docs/VISION.md`
 3. 本文件（你现在读的）
-4. `docs/ORBIT-INTEGRATION.md`
-5. `docs/SYNC-PROTOCOL.md` §8 ACK 机制
-6. `docs/ARCHITECTURE.md`
+4. `docs/ARCHITECTURE.md`
+5. `docs/DATA-MODEL.md` §2 attachments
+6. `docs/ROADMAP.md` M5
 
 **重要实现备注**：
 
@@ -39,8 +39,10 @@ M4 优先实现：
 - `src/utils/fs.ts` 的 `fsync()` 不再是 noop；运行时依赖本地 Expo native module `orbit-durable-fs`。
 - M3 已实现 native `orbit-icloud-bridge`、JS wrapper、SyncWorker、退避、状态机、iCloud transport 和全局同步 banner。
 - `src/utils/logger.ts` 已改为通过 `orbit-durable-fs.appendText()` 追加写，避免读-拼-写退化。
+- M4 已在 `/Users/ryanbzhou/Developer/new-orbit` 独立分支 `feat/mobile-inbound-ingest` 提交 `9486799 feat(mobile): 接入手机捕获入站`。
 - M2 已通过自动化验证；飞行模式、冷启动 <1s、真机杀进程恢复仍需人工在真机上执行。
 - M3 已通过自动化验证；iCloud 登录、空间满、Finder 可见性和真机上传状态仍需人工验收。
+- M4 Mac 全量测试有 1 个既有非相关失败：`tests/conversation_store.test.ts` 排序期望；M4 focused test 通过。
 
 ---
 
@@ -119,8 +121,8 @@ M4 优先实现：
 | M1 本地存储层 | completed | M0 |
 | M2 原子写入 + 文本 Capture MVP | implemented; manual device validation pending | M1 |
 | M3 同步引擎 + iCloud Bridge | implemented; manual iCloud validation pending | M2 |
-| M4 Mac 端 ingest 接入 | blocked on PR strategy confirmation | M3 |
-| M5 语音 Capture | not started | M4 |
+| M4 Mac 端 ingest 接入 | implemented; Mac branch committed | M3 |
+| M5 语音 Capture | in progress | M4 |
 | M6 图片 Capture | not started | M4 |
 | M7 Share Extension | not started | M6 |
 | M8 便捷入口 | not started | M7 |
@@ -138,6 +140,7 @@ M4 优先实现：
 - [2026-05-06 M1 本地存储层](./plans/2026-05-06-m1-local-storage-layer.md) — **completed**
 - [2026-05-07 M2 原子写入 + 文本 Capture MVP](./plans/2026-05-07-m2-atomic-write-and-capture-ui.md) — **implemented**
 - [2026-05-07 M3 同步引擎 + iCloud Bridge](./plans/2026-05-07-m3-sync-engine-icloud-bridge.md) — **implemented**
+- [2026-05-07 M4 Mac 端 ingest 接入](./plans/2026-05-07-m4-mac-mobile-inbound.md) — **implemented**
 
 ---
 

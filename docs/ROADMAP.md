@@ -18,7 +18,7 @@
      ↓
   M3: 同步引擎 + iCloud Bridge (implemented) ← 数据能到 Mac
      ↓
-  M4: Mac 端 ingest 接入  ← 端到端闭环
+  M4: Mac 端 ingest 接入 (implemented) ← 端到端闭环
      ↓
   M5: 语音 Capture  ← 多模态第一步
      ↓
@@ -135,17 +135,17 @@
 
 **目标**：在 Orbit 桌面端加 `mobile_inbound` 模块，完成端到端闭环。
 
-- [ ] 在 Orbit 仓库新开 PR：`src/main/capture/mobile_inbound/`
+- [x] 在 Orbit 仓库新开 PR：`src/main/capture/mobile_inbound/`
   - `watcher.ts` — chokidar 监听 iCloud inbox
   - `ingest.ts` — 解析 manifest → 调 ThoughtService
   - `attachments.ts` — 附件复制到 `<vault>/.orbit/capture/attachments/`
   - `config.ts` — iCloud 路径探测
-- [ ] Mac 端 ingest 成功 → 移动到 `processed/<id>/`
-- [ ] Mac 端 ingest 失败 → 写 `inbox/<id>/.failed.json`
-- [ ] iOS 端监听 `processed/` → 更新 acked
-- [ ] iOS 端监听 `.failed.json` → 显示失败原因
-- [ ] 校验和校验：sha256 不匹配时 Mac 拒绝
-- [ ] Mac 端 Dashboard 加卡片"今日来自手机 N 条"
+- [x] Mac 端 ingest 成功 → 移动到 `processed/<id>/`
+- [x] Mac 端 ingest 失败 → 写 `failed/<id>/.failed.json`
+- [x] iOS 端监听 `processed/` → 更新 acked（M3 worker 已预留 ACK 读取并更新）
+- [x] iOS 端监听 `.failed.json` → 显示失败原因（M3 worker 已预留 failure 读取并更新）
+- [x] 校验和校验：sha256 不匹配时 Mac 拒绝
+- [ ] Mac 端 Dashboard 加卡片"今日来自手机 N 条"（MVP 端到端闭环后补 UI 卡片）
 
 **验收**：
 - iPhone 保存 → 自动出现在 Mac Inbox Thoughts
