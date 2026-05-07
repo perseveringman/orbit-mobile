@@ -16,14 +16,17 @@ import { Link } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
+import type { KeyboardEvent } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { createCapture, createTextCapture } from '../../core/capture/atomic-write';
 import { runReconcile } from '../../core/reconcile/reconcile-job';
@@ -39,10 +42,13 @@ import { useDraft } from '../hooks/use-draft';
 export function CaptureScreen(): React.ReactElement {
   const inputRef = useRef<TextInput>(null);
   const draft = useDraft();
+  const insets = useSafeAreaInsets();
+  const window = useWindowDimensions();
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clipboardText, setClipboardText] = useState<string | null>(null);
+  const [keyboardInset, setKeyboardInset] = useState(0);
 
   useEffect(() => {
     const focusHandle = setTimeout(() => inputRef.current?.focus(), 50);
@@ -66,6 +72,23 @@ export function CaptureScreen(): React.ReactElement {
       });
     return () => clearTimeout(focusHandle);
   }, []);
+
+  useEffect(() => {
+    function updateKeyboardInset(event: KeyboardEvent): void {
+      const overlap = Math.max(0, window.height - event.endCoordinates.screenY - insets.bottom);
+      setKeyboardInset(overlap);
+    }
+
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillChangeFrame' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSubscription = Keyboard.addListener(showEvent, updateKeyboardInset);
+    const hideSubscription = Keyboard.addListener(hideEvent, () => setKeyboardInset(0));
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [insets.bottom, window.height]);
 
   async function save(): Promise<void> {
     const content = draft.content.trim();
@@ -180,10 +203,7 @@ export function CaptureScreen(): React.ReactElement {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      style={styles.container}
-    >
+    <View style={styles.container}>
       <View style={styles.topBar}>
         <Text style={styles.status}>○ 本地优先</Text>
         <Link href="/recent" style={styles.recentLink}>
@@ -209,6 +229,7 @@ export function CaptureScreen(): React.ReactElement {
       <TextInput
         ref={inputRef}
         autoFocus
+        blurOnSubmit={false}
         multiline
         placeholder="捕捉这一刻……"
         style={styles.input}
@@ -217,7 +238,7 @@ export function CaptureScreen(): React.ReactElement {
         onChangeText={(value) => draft.setContent(value)}
       />
 
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { marginBottom: keyboardInset, paddingBottom: insets.bottom }]}>
         <VoiceButton
           disabled={saving}
           onRecorded={(result) => {
@@ -236,7 +257,19 @@ export function CaptureScreen(): React.ReactElement {
             setError(imageError instanceof Error ? imageError.message : String(imageError));
           }}
         />
-        <Text style={styles.disabledAction}>#</Text>
+        {keyboardInset > 0 ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              Keyboard.dismiss();
+            }}
+            style={({ pressed }) => [styles.dismissButton, pressed && styles.dismissButtonPressed]}
+          >
+            <Text style={styles.dismissText}>收起</Text>
+          </Pressable>
+        ) : (
+          <Text style={styles.disabledAction}>#</Text>
+        )}
         <Pressable
           accessibilityRole="button"
           disabled={saving || draft.content.trim().length === 0}
@@ -252,7 +285,7 @@ export function CaptureScreen(): React.ReactElement {
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>完成</Text>}
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
@@ -260,9 +293,8 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: '#fff',
     flex: 1,
-    paddingBottom: 16,
     paddingHorizontal: 20,
-    paddingTop: 56,
+    paddingTop: 12,
   },
   topBar: {
     alignItems: 'center',
@@ -325,6 +357,22 @@ const styles = StyleSheet.create({
   disabledAction: {
     fontSize: 24,
     opacity: 0.35,
+  },
+  dismissButton: {
+    alignItems: 'center',
+    borderColor: '#cbd5e1',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  dismissButtonPressed: {
+    backgroundColor: '#f8fafc',
+  },
+  dismissText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
   },
   saveButton: {
     alignItems: 'center',
