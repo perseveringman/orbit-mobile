@@ -24,9 +24,9 @@
      ↓
   M6: 图片 Capture (implemented)
      ↓
-  M7: Share Extension
+  M7: Share Extension (blocked: native target required)
      ↓
-  M8: 粘贴板 + Widget 等便捷入口
+  M8: 粘贴板 + Widget 等便捷入口 (partial)
      ↓
   MVP 发布！
      ↓
@@ -200,7 +200,7 @@
 
 **目标**：从其他 app 分享菜单直达 Orbit Mobile。
 
-- [ ] 原生 Share Extension target（Expo SDK 50+ 支持）
+- [ ] 原生 Share Extension target（需要生成 `ios/` 工程 + App Group entitlement）
 - [ ] 接收 URL / 文本 / 图片 / 多类型组合
 - [ ] 最小 UI：预览 + 标签 + "保存"
 - [ ] 共享 App Group（Share Extension 和主 app 共享 SQLite + 文件系统）
@@ -220,7 +220,7 @@
 
 - [x] 粘贴板智能识别（打开 app 时读 clipboard）
 - [ ] URL 高亮建议
-- [ ] 主屏 Widget（WidgetKit，Swift）
+- [ ] 主屏 Widget（WidgetKit，Swift；需要生成 `ios/` 工程 + Widget Extension target）
   - 小：图标 + "记一条"
   - 中：最近 3 条 + "记一条"
 - [ ] 锁屏 Widget（iOS 16+）
