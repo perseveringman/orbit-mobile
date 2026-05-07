@@ -46,6 +46,7 @@ TestFlight 前优先验收：
 - M5/M6 已把附件纳入同一五阶段原子协议：语音 `.m4a` 和图片都会进入 `captures/<id>/` manifest attachments。
 - M5/M6 媒体保存现在会在写 SQLite 前复写并验证最终 capture 目录的 `manifest.json`、sha256 和附件；不完整时不会显示保存成功，既有坏记录会在启动 reconcile 中标为 `conflicted`。
 - Capture 主输入页的底部工具条现在会跟随键盘上移，并在键盘打开时显示“收起”按钮，避免被键盘遮挡且无法 dismiss。
+- 最近列表和详情页已改为用户友好的 Capture 展示：按文字/图片/语音/混合类型渲染卡片，图片显示缩略图/大图，语音可播放，同步技术记录默认折叠。
 - 当前语音实时转写未接第三方 `expo-speech-recognition`，只保留 wrapper + 手动转写文本；若继续要求实时转写，需要引入/验证该依赖或自写 native Speech module。
 - M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`，主 app 启动后导入到本地原子 Capture。
 - M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget，deep link 到 `orbit-mobile://`。
@@ -132,7 +133,7 @@ TestFlight 前优先验收：
 | M3 同步引擎 + iCloud Bridge | implemented; manual iCloud validation pending | M2 |
 | M4 Mac 端 ingest 接入 | implemented; Mac branch committed | M3 |
 | M5 语音 Capture | implemented; realtime transcription pending | M4 |
-| M6 图片 Capture | implemented; thumbnail staging UI pending | M4 |
+| M6 图片 Capture | implemented; media display done; thumbnail staging UI pending | M4 |
 | M7 Share Extension | implemented; true-device share sheet validation pending | M6 |
 | M8 便捷入口 | implemented; lock-screen/widget timing validation pending | M7 |
 

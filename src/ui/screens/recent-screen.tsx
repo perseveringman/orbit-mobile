@@ -9,13 +9,27 @@
  */
 
 import { Link } from 'expo-router';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SyncIndicator } from '../components/sync-indicator';
 import { useCapturesRecent } from '../hooks/use-captures';
+import { loadCaptureDisplay, type CaptureDisplayModel } from '../models/capture-display';
 
 export function RecentScreen(): React.ReactElement {
   const capturesResult = useCapturesRecent();
+  const [displayById, setDisplayById] = useState<Record<string, CaptureDisplayModel>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all(capturesResult.captures.map((capture) => loadCaptureDisplay(capture))).then((models) => {
+      if (cancelled) return;
+      setDisplayById(Object.fromEntries(models.map((model) => [model.id, model])));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [capturesResult.captures]);
 
   if (capturesResult.loading) {
     return (
@@ -43,16 +57,43 @@ export function RecentScreen(): React.ReactElement {
         ListEmptyComponent={<Text style={styles.empty}>还没有 capture</Text>}
         renderItem={({ item }) => {
           const href = `/detail/${item.id}` as const;
+          const display = displayById[item.id];
           return (
             <Link href={href} asChild>
-              <Pressable style={styles.row}>
-                <View style={styles.rowText}>
-                  <Text numberOfLines={2} style={styles.preview}>
-                    {item.content_preview || '（空内容）'}
-                  </Text>
-                  <Text style={styles.time}>{item.captured_at_local}</Text>
+              <Pressable style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
+                <View style={styles.cardHeader}>
+                  <View style={styles.kind}>
+                    <Text style={styles.kindIcon}>{display?.icon ?? '✎'}</Text>
+                    <Text style={styles.kindText}>{display?.kindLabel ?? kindFallback(item.kind)}</Text>
+                  </View>
+                  <SyncIndicator state={item.sync_state} />
                 </View>
-                <SyncIndicator state={item.sync_state} />
+                <Text numberOfLines={2} style={styles.preview}>
+                  {display?.title || item.content_preview || '空白 Capture'}
+                </Text>
+                {display?.images[0] ? (
+                  <View style={styles.imageStrip}>
+                    {display.images.slice(0, 3).map((image) => (
+                      <Image key={image.filename} source={{ uri: image.uri }} style={styles.thumbnail} />
+                    ))}
+                    {display.images.length > 3 ? (
+                      <View style={styles.moreImages}>
+                        <Text style={styles.moreImagesText}>+{display.images.length - 3}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+                {display?.audio[0] ? (
+                  <View style={styles.audioPill}>
+                    <Text style={styles.audioPillText}>
+                      语音 {display.audio[0].durationLabel ?? display.audio[0].sizeLabel}
+                    </Text>
+                  </View>
+                ) : null}
+                {display?.manifestMissing ? (
+                  <Text style={styles.warning}>本地文件不完整</Text>
+                ) : null}
+                <Text style={styles.time}>{display?.capturedAtLabel ?? item.captured_at_local}</Text>
               </Pressable>
             </Link>
           );
@@ -60,6 +101,14 @@ export function RecentScreen(): React.ReactElement {
       />
     </View>
   );
+}
+
+function kindFallback(kind: string): string {
+  if (kind === 'voice') return '语音';
+  if (kind === 'photo') return '图片';
+  if (kind === 'share') return '分享';
+  if (kind === 'mixed') return '混合';
+  return '文字';
 }
 
 const styles = StyleSheet.create({
@@ -100,25 +149,87 @@ const styles = StyleSheet.create({
     marginTop: 40,
     textAlign: 'center',
   },
-  row: {
-    alignItems: 'center',
-    borderBottomColor: '#e2e8f0',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    gap: 12,
-    paddingVertical: 14,
+  card: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#e2e8f0',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 12,
+    padding: 14,
   },
-  rowText: {
-    flex: 1,
+  cardPressed: {
+    backgroundColor: '#f1f5f9',
+  },
+  cardHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  kind: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  kindIcon: {
+    color: '#0f172a',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  kindText: {
+    color: '#475569',
+    fontSize: 13,
+    fontWeight: '700',
   },
   preview: {
     color: '#0f172a',
     fontSize: 16,
     lineHeight: 22,
   },
+  imageStrip: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  thumbnail: {
+    backgroundColor: '#e2e8f0',
+    borderRadius: 12,
+    height: 72,
+    width: 72,
+  },
+  moreImages: {
+    alignItems: 'center',
+    backgroundColor: '#e2e8f0',
+    borderRadius: 12,
+    height: 72,
+    justifyContent: 'center',
+    width: 72,
+  },
+  moreImagesText: {
+    color: '#475569',
+    fontWeight: '800',
+  },
+  audioPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#eef2ff',
+    borderRadius: 999,
+    marginTop: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  audioPillText: {
+    color: '#3730a3',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  warning: {
+    color: '#b91c1c',
+    fontSize: 12,
+    marginTop: 10,
+  },
   time: {
     color: '#64748b',
     fontSize: 12,
-    marginTop: 4,
+    marginTop: 10,
   },
 });
