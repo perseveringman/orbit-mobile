@@ -13,8 +13,6 @@
 import * as SQLite from 'expo-sqlite';
 import type { SQLiteBindParams } from 'expo-sqlite';
 
-import { generateDeviceId } from '../../utils/id';
-import { getOrInit } from './device-info';
 import { runMigrations } from './migrations';
 import type { SQLiteDatabaseLike, SQLiteValue } from './sqlite';
 
@@ -62,7 +60,6 @@ export async function openDb(): Promise<SQLiteDatabaseLike> {
     await db.execAsync(`PRAGMA journal_mode = WAL;`);
     await db.execAsync(`PRAGMA foreign_keys = ON;`);
     await runMigrations(db);
-    await getOrInit(db, 'device_id', generateDeviceId);
     dbInstance = db;
     return db;
   })();

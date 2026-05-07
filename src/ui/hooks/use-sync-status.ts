@@ -1,12 +1,74 @@
-/**
- * use-sync-status.ts — 聚合同步状态 hook
- *
- * 订阅 sync_events 与 captures 的 sync_state 变化，返回：
- *   { pending, syncing, failed, iCloudAvailable, networkOnline }
- *
- * @see docs/ARCHITECTURE.md §6
- *
- * TODO(M3): 聚合 + 订阅
- */
+import { useCallback, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 
-export const __stub__ = true;
+import * as iCloudBridge from '../../native/icloud-bridge';
+import * as capturesRepo from '../../core/storage/captures-repo';
+import { openDb } from '../../core/storage/db';
+import { runSyncTick } from '../../core/sync/worker';
+import type { SyncStatusCounts } from '../../types/sync';
+
+export interface SyncStatusSnapshot {
+  counts: SyncStatusCounts;
+  iCloud: iCloudBridge.ICloudContainerStatus;
+  error: string | null;
+  loading: boolean;
+  refresh(runWorker?: boolean): Promise<void>;
+}
+
+const EMPTY_COUNTS: SyncStatusCounts = {
+  pending: 0,
+  syncing: 0,
+  uploaded: 0,
+  acked: 0,
+  failed: 0,
+  conflicted: 0,
+};
+
+export function useSyncStatus(pollMs = 5000): SyncStatusSnapshot {
+  const [counts, setCounts] = useState<SyncStatusCounts>(EMPTY_COUNTS);
+  const [iCloud, setICloud] = useState<iCloudBridge.ICloudContainerStatus>({
+    available: false,
+    reason: 'unknown',
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async (runWorker = false): Promise<void> => {
+    try {
+      const db = await openDb();
+      if (runWorker) {
+        await runSyncTick({ db });
+      }
+      const [nextCounts, nextICloud] = await Promise.all([
+        capturesRepo.countByState(db),
+        iCloudBridge.getContainerStatus(),
+      ]);
+      setCounts(nextCounts);
+      setICloud(nextICloud);
+      setError(null);
+    } catch (refreshError) {
+      setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh(true);
+    const interval = setInterval(() => {
+      void refresh(true);
+    }, pollMs);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        void refresh(true);
+      }
+    });
+
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [pollMs, refresh]);
+
+  return { counts, iCloud, error, loading, refresh };
+}

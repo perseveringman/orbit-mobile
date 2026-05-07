@@ -3,16 +3,16 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-07（M7/M8 native entrypoints implemented）
+**Last updated**: 2026-05-07（M0-M8 code-complete closure）
 **Last updater**: Copilot
-**Current milestone**: **M7/M8 — implemented; device validation pending**
-**Next milestone**: TestFlight 前真机验收 + 实时转写/媒体设置补齐
+**Current milestone**: **M0-M8 — code complete; manual device validation pending**
+**Next milestone**: 真机/iCloud/TestFlight 验收
 
 ---
 
 ## 🔴 给下一个 AI 的最重要信息
 
-**当前项目已经是可运行的 Expo SDK 54 TypeScript + iOS Development Build 项目，并完成 M2-M8 MVP 主链路：本地原子 Capture、iCloud Drive 同步、Mac inbound、语音/图片附件、Share Extension、Widget 入口。**
+**当前项目已经是可运行的 Expo SDK 54 TypeScript + iOS Development Build 项目，并完成 M2-M8 MVP 主链路：本地原子 Capture、iCloud Drive 同步、Mac inbound、语音实时转写/原始录音、图片附件、Share Extension、Widget 入口。**
 
 M7/M8 已接入原生入口：Share Extension 只写 App Group `share-inbox/` 交换目录，主 app 启动后通过 `createCapture()` 导入，继续走同一套五阶段本地原子写入协议；WidgetKit 只 deep link 到主 Capture。Extension/Widget 都不直接写 iCloud。
 
@@ -42,16 +42,19 @@ TestFlight 前优先验收：
 - 当前本机已升级到 Xcode 26.4.1；`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 通过。
 - M3 已实现 native `orbit-icloud-bridge`、JS wrapper、SyncWorker、退避、状态机、iCloud transport 和全局同步 banner。
 - `src/utils/logger.ts` 已改为通过 `orbit-durable-fs.appendText()` 追加写，避免读-拼-写退化。
-- M4 已在 `/Users/ryanbzhou/Developer/new-orbit` 独立分支 `feat/mobile-inbound-ingest` 提交 `9486799 feat(mobile): 接入手机捕获入站`。
+- M4 已合入 `/Users/ryanbzhou/Developer/new-orbit` 的 `main`，merge commit `feat(mobile): 合并手机入站接入`；focused test `tests/mobile_inbound.test.ts` 通过。
 - M5/M6 已把附件纳入同一五阶段原子协议：语音 `.m4a` 和图片都会进入 `captures/<id>/` manifest attachments。
 - M5/M6 媒体保存现在会在写 SQLite 前复写并验证最终 capture 目录的 `manifest.json`、sha256 和附件；不完整时不会显示保存成功，既有坏记录会在启动 reconcile 中标为 `conflicted`。
 - Capture 主输入页的底部工具条现在会跟随键盘上移，并在键盘打开时显示“收起”按钮，避免被键盘遮挡且无法 dismiss。
 - 最近列表和详情页已改为用户友好的 Capture 展示：按文字/图片/语音/混合类型渲染卡片，图片显示缩略图/大图，语音可播放，同步技术记录默认折叠。
-- 当前语音实时转写未接第三方 `expo-speech-recognition`，只保留 wrapper + 手动转写文本；若继续要求实时转写，需要引入/验证该依赖或自写 native Speech module。
+- 当前语音实时转写通过本地 native module `orbit-speech-recognition` 接 Apple Speech framework；转写失败不影响原始 `.m4a` 保存。
+- M6 图片入口使用 ActionSheet，相册/拍照统一为 `MediaPicker`；图片经 `expo-image-picker` quality 0.82 压缩后进入本地原子协议。
+- `sync_events.gc({ keepPerCapture })` 已实现窗口函数裁剪；全局同步状态改为 `useSyncStatus()` 聚合并 5s 刷新。
 - M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`，主 app 启动后导入到本地原子 Capture。
 - M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget，deep link 到 `orbit-mobile://`。
 - M2 已通过自动化验证；飞行模式、冷启动 <1s、真机杀进程恢复仍需人工在真机上执行。
 - M3 已通过自动化验证；iCloud 登录、空间满、Finder 可见性和真机上传状态仍需人工验收。
+- 本机 `周延博的 iPhone` 已完成 `iphoneos` Debug build、签名、安装和启动；需要用户在设备上继续执行飞行模式/杀进程/iCloud Finder/Share/Widget 交互验收。
 - M4 Mac 全量测试有 1 个既有非相关失败：`tests/conversation_store.test.ts` 排序期望；M4 focused test 通过。
 
 ---
@@ -131,9 +134,9 @@ TestFlight 前优先验收：
 | M1 本地存储层 | completed | M0 |
 | M2 原子写入 + 文本 Capture MVP | implemented; manual device validation pending | M1 |
 | M3 同步引擎 + iCloud Bridge | implemented; manual iCloud validation pending | M2 |
-| M4 Mac 端 ingest 接入 | implemented; Mac branch committed | M3 |
-| M5 语音 Capture | implemented; realtime transcription pending | M4 |
-| M6 图片 Capture | implemented; media display done; thumbnail staging UI pending | M4 |
+| M4 Mac 端 ingest 接入 | merged to Mac main; focused test passed; real iCloud E2E pending | M3 |
+| M5 语音 Capture | implemented; Apple Speech true-device validation pending | M4 |
+| M6 图片 Capture | implemented; media display done; true-device validation pending | M4 |
 | M7 Share Extension | implemented; true-device share sheet validation pending | M6 |
 | M8 便捷入口 | implemented; lock-screen/widget timing validation pending | M7 |
 
@@ -162,7 +165,7 @@ TestFlight 前优先验收：
 | native `fsync()` 需要真机确认 | M2 已提供 iOS native module，但耐久性语义仍需真机杀进程/断电类验证 | TestFlight 前执行 `docs/TESTING.md` M2 真机清单 |
 | iCloud 同步延迟不可控 | Apple 不承诺秒级 | UI 层透明展示状态，不让用户误以为卡住 |
 | iCloud native module 需 capability 验证 | 本地 module 已实现，Apple Developer capability / EAS 配置需真机确认 | M3 手动验收时确认 iCloud Drive 可见 |
-| `expo-speech-recognition` 稳定性 | 新 API，实机可能有坑 | M5 开工时先做 spike，不行就自写 native module |
+| Apple Speech native module 真机行为 | 已自写 `orbit-speech-recognition`，但与 `expo-av` 同时占用麦克风需真机确认 | M5 真机验收时确认实时转写和录音可并行；失败时原始录音仍保存 |
 | App Group 共享存储复杂度 | Share Extension 已采用 App Group inbox + 主 app 导入，避免 extension 直接写 SQLite | 真机分享和杀进程导入场景验收 |
 | iCloud Container 权限审核 | App Store 审核可能要求说明 | 隐私说明文档 + 明示数据流向 |
 

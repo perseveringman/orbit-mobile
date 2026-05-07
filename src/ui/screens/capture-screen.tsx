@@ -34,8 +34,9 @@ import { importShareInbox } from '../../core/share/share-inbox';
 import { openDb } from '../../core/storage/db';
 import { runSyncTick } from '../../core/sync/worker';
 import type { VoiceRecordingResult } from '../../core/audio/recorder';
+import type { LiveTranscriptionState } from '../../core/audio/transcription';
 import type { PickedImage } from '../../core/image/picker';
-import { ImageButton } from '../components/image-button';
+import { MediaPicker } from '../components/media-picker';
 import { VoiceButton } from '../components/voice-button';
 import { useDraft } from '../hooks/use-draft';
 
@@ -49,6 +50,7 @@ export function CaptureScreen(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [clipboardText, setClipboardText] = useState<string | null>(null);
   const [keyboardInset, setKeyboardInset] = useState(0);
+  const [liveTranscription, setLiveTranscription] = useState<LiveTranscriptionState | null>(null);
 
   useEffect(() => {
     const focusHandle = setTimeout(() => inputRef.current?.focus(), 50);
@@ -142,7 +144,11 @@ export function CaptureScreen(): React.ReactElement {
               duration_ms: result.durationMs ?? undefined,
               recorded_at: new Date().toISOString(),
               transcription: draft.content.trim() || undefined,
-              transcription_source: draft.content.trim() ? 'manual' : undefined,
+              transcription_source: draft.content.trim()
+                ? liveTranscription?.source === 'ios-speech'
+                  ? 'ios-speech'
+                  : 'manual'
+                : undefined,
             },
           ],
         },
@@ -152,6 +158,7 @@ export function CaptureScreen(): React.ReactElement {
         },
       );
       await draft.clear();
+      setLiveTranscription(null);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setMessage('语音已保存 ✓');
       void runSyncTick({ db });
@@ -220,7 +227,14 @@ export function CaptureScreen(): React.ReactElement {
             setClipboardText(null);
           }}
         >
-          <Text style={styles.clipboardText}>粘贴剪贴板内容</Text>
+          <Text style={styles.clipboardText}>
+            {isUrl(clipboardText) ? '保存剪贴板链接' : '粘贴剪贴板内容'}
+          </Text>
+          {isUrl(clipboardText) ? (
+            <Text numberOfLines={1} style={styles.clipboardUrl}>
+              {clipboardText}
+            </Text>
+          ) : null}
         </Pressable>
       ) : null}
       {message ? <Text style={styles.toast}>{message}</Text> : null}
@@ -241,6 +255,10 @@ export function CaptureScreen(): React.ReactElement {
       <View style={[styles.bottomBar, { marginBottom: keyboardInset, paddingBottom: insets.bottom }]}>
         <VoiceButton
           disabled={saving}
+          onTranscript={(state) => {
+            setLiveTranscription(state);
+            draft.setContent(state.transcript);
+          }}
           onRecorded={(result) => {
             void saveVoice(result);
           }}
@@ -248,7 +266,7 @@ export function CaptureScreen(): React.ReactElement {
             setError(voiceError instanceof Error ? voiceError.message : String(voiceError));
           }}
         />
-        <ImageButton
+        <MediaPicker
           disabled={saving}
           onPicked={(images) => {
             void saveImages(images);
@@ -287,6 +305,15 @@ export function CaptureScreen(): React.ReactElement {
       </View>
     </View>
   );
+}
+
+function isUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 const styles = StyleSheet.create({
@@ -328,6 +355,11 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontSize: 13,
     fontWeight: '700',
+  },
+  clipboardUrl: {
+    color: '#64748b',
+    fontSize: 12,
+    marginTop: 4,
   },
   toast: {
     color: '#166534',

@@ -159,11 +159,11 @@
 **目标**：按住说话 → 实时转写 → 保存文本 + 原始录音。
 
 - [x] `expo-audio` 或 `expo-av` 录音
-- [ ] `expo-speech-recognition` 实时转写（当前保留 wrapper，未引入不稳定依赖；可保存手动转写文本）
+- [x] 实时转写（本地 native module `orbit-speech-recognition` + Apple Speech framework；失败不阻断录音）
 - [x] `src/core/audio/recorder.ts`
 - [x] `src/core/audio/transcription.ts`
 - [x] `src/ui/components/voice-button.tsx` — 按压录音交互
-- [ ] 录音中 app 被杀 → 下次启动提示恢复
+- [ ] 录音中 app 被杀 → 下次启动提示恢复（需真机验证 iOS 临时录音文件保留行为）
 - [x] manifest 带 `transcription_source`（手动文本时为 `manual`）
 - [x] 原始 `.m4a` 附件永久保留（除非用户关闭）
 
@@ -183,11 +183,11 @@
 - [x] `expo-camera` 集成（通过 `expo-image-picker` camera API）
 - [x] `expo-image-manipulator` 压缩（当前使用 picker quality 0.82，未单独引入 manipulator）
 - [x] `src/core/media/picker.ts`（实现为 `src/core/image/picker.ts`）
-- [ ] `src/core/media/compressor.ts`
+- [x] `src/core/media/compressor.ts`（封装当前 picker quality 压缩策略；不引入额外 native 依赖）
 - [x] `src/ui/components/media-picker.tsx`（实现为 `src/ui/components/image-button.tsx`）
 - [x] 多图支持（UI + manifest）
 - [x] 原图可选保留（当前默认保留 picker 返回文件进入本地原子协议）
-- [ ] 用户设置："总是压缩" / "仅 Wi-Fi 原图" / "总是原图"
+- [ ] 用户设置："总是压缩" / "仅 Wi-Fi 原图" / "总是原图"（MVP 后设置项）
 
 **验收**：
 - 选图/拍照后立即出现在输入框上方预览
@@ -219,7 +219,7 @@
 **目标**：降低"打开 app"这个摩擦到接近 0。
 
 - [x] 粘贴板智能识别（打开 app 时读 clipboard）
-- [ ] URL 高亮建议
+- [x] URL 高亮建议
 - [x] 主屏 Widget（WidgetKit，Swift；`ios/OrbitWidgets` target）
   - 小：图标 + "记一条"
   - 中：Capture 快捷入口（最近 3 条待后续共享只读摘要）

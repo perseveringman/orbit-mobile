@@ -2,6 +2,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { pickImages, takePhoto, type PickedImage } from '../../core/image/picker';
 
+export { MediaPicker } from './media-picker';
+
 interface ImageButtonProps {
   disabled?: boolean;
   onPicked: (images: PickedImage[]) => void;

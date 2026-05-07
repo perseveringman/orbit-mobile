@@ -1,72 +1,11 @@
-import { useEffect, useState } from 'react';
-import { AppState, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
-import * as iCloudBridge from '../../native/icloud-bridge';
-import type { SyncState } from '../../types/capture';
-import * as capturesRepo from '../../core/storage/captures-repo';
-import { openDb } from '../../core/storage/db';
-import { runSyncTick } from '../../core/sync/worker';
-
-type SyncCounts = Record<SyncState, number>;
-
-const EMPTY_COUNTS: SyncCounts = {
-  pending: 0,
-  syncing: 0,
-  uploaded: 0,
-  acked: 0,
-  failed: 0,
-  conflicted: 0,
-};
+import type * as iCloudBridge from '../../native/icloud-bridge';
+import type { SyncStatusCounts } from '../../types/sync';
+import { useSyncStatus } from '../hooks/use-sync-status';
 
 export function GlobalStatusBar(): React.ReactElement | null {
-  const [counts, setCounts] = useState<SyncCounts>(EMPTY_COUNTS);
-  const [container, setContainer] = useState<iCloudBridge.ICloudContainerStatus>({
-    available: false,
-    reason: 'unknown',
-  });
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function refresh(runWorker: boolean): Promise<void> {
-      try {
-        const db = await openDb();
-        if (runWorker) {
-          await runSyncTick({ db });
-        }
-        const [nextCounts, nextContainer] = await Promise.all([
-          capturesRepo.countByState(db),
-          iCloudBridge.getContainerStatus(),
-        ]);
-        if (!cancelled) {
-          setCounts(nextCounts);
-          setContainer(nextContainer);
-          setError(null);
-        }
-      } catch (refreshError) {
-        if (!cancelled) {
-          setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
-        }
-      }
-    }
-
-    void refresh(true);
-    const interval = setInterval(() => {
-      void refresh(true);
-    }, 60000);
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        void refresh(true);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-      subscription.remove();
-    };
-  }, []);
+  const { counts, iCloud: container, error } = useSyncStatus();
 
   const unsettled = counts.pending + counts.syncing + counts.uploaded + counts.failed + counts.conflicted;
   if (unsettled === 0 && container.available && error === null) {
@@ -82,7 +21,7 @@ export function GlobalStatusBar(): React.ReactElement | null {
   );
 }
 
-function syncLabel(counts: SyncCounts, container: iCloudBridge.ICloudContainerStatus): string {
+function syncLabel(counts: SyncStatusCounts, container: iCloudBridge.ICloudContainerStatus): string {
   if (!container.available) {
     return `iCloud 不可用：${container.reason ?? 'unknown'}。Capture 已保存在本地。`;
   }

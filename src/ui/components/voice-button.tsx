@@ -1,24 +1,50 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
+import {
+  startLiveTranscription,
+  type LiveTranscriptionSession,
+  type LiveTranscriptionState,
+} from '../../core/audio/transcription';
 import { startVoiceRecording, stopVoiceRecording } from '../../core/audio/recorder';
 import type { VoiceRecordingResult } from '../../core/audio/recorder';
 
 interface VoiceButtonProps {
   disabled?: boolean;
   onRecorded: (result: VoiceRecordingResult) => void;
+  onTranscript?: (state: LiveTranscriptionState) => void;
   onError: (error: unknown) => void;
 }
 
-export function VoiceButton({ disabled, onRecorded, onError }: VoiceButtonProps): React.ReactElement {
+export function VoiceButton({
+  disabled,
+  onRecorded,
+  onTranscript,
+  onError,
+}: VoiceButtonProps): React.ReactElement {
   const [recording, setRecording] = useState(false);
+  const [transcription, setTranscription] = useState<LiveTranscriptionSession | null>(null);
 
   async function begin(): Promise<void> {
     if (disabled || recording) return;
+    let session: LiveTranscriptionSession | null = null;
     try {
+      session = await startLiveTranscription(
+        (state) => {
+          if (state.transcript.trim().length > 0) {
+            onTranscript?.(state);
+          }
+        },
+        () => {
+          // 转写失败不能阻断原始录音保存。
+        },
+      );
+      setTranscription(session);
       await startVoiceRecording();
       setRecording(true);
     } catch (error) {
+      await session?.stop();
+      setTranscription(null);
       onError(error);
     }
   }
@@ -30,6 +56,9 @@ export function VoiceButton({ disabled, onRecorded, onError }: VoiceButtonProps)
       onRecorded(await stopVoiceRecording());
     } catch (error) {
       onError(error);
+    } finally {
+      await transcription?.stop();
+      setTranscription(null);
     }
   }
 

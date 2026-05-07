@@ -1,5 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 
+import { compressImage } from '../media/compressor';
+
 export interface PickedImage {
   uri: string;
   filename: string;
@@ -39,12 +41,18 @@ export async function takePhoto(): Promise<PickedImage | null> {
 
 function toPickedImage(asset: ImagePicker.ImagePickerAsset, index: number): PickedImage {
   const extension = extensionFromUri(asset.uri) ?? 'jpg';
-  return {
-    uri: asset.uri,
-    filename: sanitizeFilename(asset.fileName) ?? `photo-${index + 1}.${extension}`,
-    mime: asset.mimeType ?? (extension === 'png' ? 'image/png' : 'image/jpeg'),
+  const compressed = compressImage(asset.uri, {
     width: asset.width,
     height: asset.height,
+    filename: asset.fileName,
+    mime: asset.mimeType,
+  });
+  return {
+    uri: compressed.uri,
+    filename: sanitizeFilename(asset.fileName) ?? compressed.filename ?? `photo-${index + 1}.${extension}`,
+    mime: compressed.mime,
+    width: compressed.width,
+    height: compressed.height,
   };
 }
 

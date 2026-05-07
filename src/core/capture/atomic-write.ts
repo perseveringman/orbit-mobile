@@ -11,7 +11,7 @@
  */
 
 import * as capturesRepo from '../storage/captures-repo';
-import { getValue } from '../storage/device-info';
+import { getOrInit } from '../storage/device-info';
 import * as eventsRepo from '../storage/events-repo';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
 import type { CaptureKind } from '../../types/capture';
@@ -24,7 +24,7 @@ import type {
   CreateTextCaptureInput,
   ManifestAttachment,
 } from './types';
-import { generateCaptureId, generateSessionId } from '../../utils/id';
+import { generateCaptureId, generateDeviceId, generateSessionId } from '../../utils/id';
 import type { FileSystemAdapter } from '../../utils/fs';
 import { expoFileSystem, joinPath } from '../../utils/fs';
 import { isoLocal, isoNow } from '../../utils/time';
@@ -120,10 +120,7 @@ export async function createCapture(
   const createdAt = isoNow(now);
   const capturedAtLocal = isoLocal(now);
   const inputFinishedAt = createdAt;
-  const deviceId = await getValue(opts.db, 'device_id');
-  if (!deviceId) {
-    throw new Error('capture.device_id_missing');
-  }
+  const deviceId = await getOrInit(opts.db, 'device_id', generateDeviceId);
 
   const attachments = await prepareAttachments(fs, rawAttachments);
   const manifest = buildManifest({

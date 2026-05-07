@@ -18,7 +18,6 @@ export async function setValue(db: SQLiteDatabaseLike, key: string, value: strin
   );
 }
 
-// TODO(M2): move device_id initialization after first paint once UI exists.
 export async function getOrInit(
   db: SQLiteDatabaseLike,
   key: string,
@@ -30,6 +29,13 @@ export async function getOrInit(
   }
 
   const value = await init();
-  await setValue(db, key, value);
-  return value;
+  await db.runAsync(
+    `INSERT OR IGNORE INTO device_info (key, value, updated_at) VALUES (?, ?, ?)`,
+    [key, value, new Date().toISOString()],
+  );
+  const stored = await getValue(db, key);
+  if (!stored) {
+    throw new Error(`device_info.init_failed:${key}`);
+  }
+  return stored;
 }

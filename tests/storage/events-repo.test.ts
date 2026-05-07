@@ -61,10 +61,39 @@ describe('sync events repo', () => {
     expect(remaining.map((event) => event.event)).toEqual(['retried']);
   });
 
-  it('keeps keepPerCapture unimplemented until M3', async () => {
+  it('garbage collects older events while keeping the newest events per capture', async () => {
     const db = await createMigratedTestDb();
-    await expect(eventsRepo.gc(db, { keepPerCapture: 20 })).rejects.toThrow(
-      'keep_per_capture_not_implemented',
-    );
+    await capturesRepo.insert(db, captureInput('mob_cap_gc_keep_a'));
+    await capturesRepo.insert(db, captureInput('mob_cap_gc_keep_b'));
+    for (let index = 0; index < 4; index += 1) {
+      await eventsRepo.append(
+        db,
+        'mob_cap_gc_keep_a',
+        'failed',
+        { index },
+        `2026-05-07T00:00:0${index}.000Z`,
+      );
+      await eventsRepo.append(
+        db,
+        'mob_cap_gc_keep_b',
+        'failed',
+        { index },
+        `2026-05-07T00:00:0${index}.000Z`,
+      );
+    }
+
+    const result = await eventsRepo.gc(db, { keepPerCapture: 2 });
+    const remainingA = await eventsRepo.listByCapture(db, 'mob_cap_gc_keep_a');
+    const remainingB = await eventsRepo.listByCapture(db, 'mob_cap_gc_keep_b');
+
+    expect(result.deleted).toBe(4);
+    expect(remainingA.map((event) => event.details_json)).toEqual([
+      JSON.stringify({ index: 3 }),
+      JSON.stringify({ index: 2 }),
+    ]);
+    expect(remainingB.map((event) => event.details_json)).toEqual([
+      JSON.stringify({ index: 3 }),
+      JSON.stringify({ index: 2 }),
+    ]);
   });
 });

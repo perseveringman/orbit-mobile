@@ -6,7 +6,10 @@
  *
  * @see docs/ARCHITECTURE.md §8
  *
- * TODO(M5): pickFromLibrary / takePhoto
  */
 
-export const __stub__ = true;
+export {
+  pickImages as pickFromLibrary,
+  takePhoto,
+  type PickedImage,
+} from '../image/picker';

@@ -1,0 +1,7 @@
+{
+  "name": "orbit-speech-recognition",
+  "version": "0.0.0",
+  "description": "Orbit Mobile iOS speech recognition native module",
+  "main": "src/index.ts",
+  "private": true
+}
