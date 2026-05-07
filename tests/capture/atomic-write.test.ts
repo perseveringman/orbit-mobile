@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createTextCapture } from '@/core/capture/atomic-write';
+import { createCapture, createTextCapture } from '@/core/capture/atomic-write';
 import * as capturesRepo from '@/core/storage/captures-repo';
 import * as eventsRepo from '@/core/storage/events-repo';
 import { setValue } from '@/core/storage/device-info';
@@ -69,5 +69,51 @@ describe('atomic write', () => {
       exists: false,
     });
     await expect(capturesRepo.get(db, 'mob_cap_fail')).resolves.toBeNull();
+  });
+
+  it('copies attachments into the final capture directory and records media metadata', async () => {
+    const db = await createMigratedTestDb();
+    const fs = new MemoryFileSystem();
+    await setValue(db, 'device_id', 'device-1');
+    await fs.writeString('/tmp/audio.m4a', 'audio-bytes');
+
+    const result = await createCapture(
+      {
+        kind: 'voice',
+        content: 'voice transcript',
+        attachments: [
+          {
+            type: 'audio',
+            filename: 'audio.m4a',
+            localUri: '/tmp/audio.m4a',
+            mime: 'audio/m4a',
+            byte_size: 10,
+            sha256: 'audio-hash',
+            transcription: 'voice transcript',
+            transcription_source: 'ios-speech',
+          },
+        ],
+      },
+      {
+        db,
+        fs,
+        id: 'mob_cap_voice',
+        txnId: 'txn_voice',
+        now: new Date('2026-05-07T00:00:02.000Z'),
+      },
+    );
+
+    const captureDir = joinPath(fs.documentDirectory, 'captures', 'mob_cap_voice');
+    await expect(fs.readString(joinPath(captureDir, 'audio.m4a'))).resolves.toBe('audio-bytes');
+    await expect(capturesRepo.get(db, 'mob_cap_voice')).resolves.toMatchObject({
+      kind: 'voice',
+      has_audio: 1,
+      attachment_count: 1,
+    });
+    expect(result.manifest.attachments[0]).toMatchObject({
+      filename: 'audio.m4a',
+      sha256: 'audio-hash',
+      transcription_source: 'ios-speech',
+    });
   });
 });

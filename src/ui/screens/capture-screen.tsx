@@ -9,7 +9,9 @@
  *
  */
 
+import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
+import * as Haptics from 'expo-haptics';
 import { Link } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -23,10 +25,14 @@ import {
   View,
 } from 'react-native';
 
-import { createTextCapture } from '../../core/capture/atomic-write';
+import { createCapture, createTextCapture } from '../../core/capture/atomic-write';
 import { runReconcile } from '../../core/reconcile/reconcile-job';
 import { openDb } from '../../core/storage/db';
 import { runSyncTick } from '../../core/sync/worker';
+import type { VoiceRecordingResult } from '../../core/audio/recorder';
+import type { PickedImage } from '../../core/image/picker';
+import { ImageButton } from '../components/image-button';
+import { VoiceButton } from '../components/voice-button';
 import { useDraft } from '../hooks/use-draft';
 
 export function CaptureScreen(): React.ReactElement {
@@ -35,6 +41,7 @@ export function CaptureScreen(): React.ReactElement {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [clipboardText, setClipboardText] = useState<string | null>(null);
 
   useEffect(() => {
     const focusHandle = setTimeout(() => inputRef.current?.focus(), 50);
@@ -42,6 +49,15 @@ export function CaptureScreen(): React.ReactElement {
       .then((db) => runReconcile({ db }))
       .catch((reconcileError: unknown) => {
         setError(reconcileError instanceof Error ? reconcileError.message : String(reconcileError));
+      });
+    Clipboard.hasStringAsync()
+      .then((hasString) => (hasString ? Clipboard.getStringAsync() : Promise.resolve('')))
+      .then((value) => {
+        const trimmed = value.trim();
+        if (trimmed.length > 0) setClipboardText(trimmed.slice(0, 5000));
+      })
+      .catch((clipboardError: unknown) => {
+        setError(clipboardError instanceof Error ? clipboardError.message : String(clipboardError));
       });
     return () => clearTimeout(focusHandle);
   }, []);
@@ -67,11 +83,92 @@ export function CaptureScreen(): React.ReactElement {
         },
       );
       await draft.clear();
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setMessage('已保存 ✓');
       void runSyncTick({ db });
       setTimeout(() => inputRef.current?.focus(), 0);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveVoice(result: VoiceRecordingResult): Promise<void> {
+    setSaving(true);
+    setError(null);
+    try {
+      const db = await openDb();
+      const content = draft.content.trim() || '语音记录';
+      await createCapture(
+        {
+          kind: 'voice',
+          content,
+          sessionId: draft.sessionId,
+          attachments: [
+            {
+              type: 'audio',
+              filename: 'audio.m4a',
+              localUri: result.uri,
+              mime: 'audio/m4a',
+              duration_ms: result.durationMs ?? undefined,
+              recorded_at: new Date().toISOString(),
+              transcription: draft.content.trim() || undefined,
+              transcription_source: draft.content.trim() ? 'manual' : undefined,
+            },
+          ],
+        },
+        {
+          db,
+          sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
+        },
+      );
+      await draft.clear();
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setMessage('语音已保存 ✓');
+      void runSyncTick({ db });
+      setTimeout(() => inputRef.current?.focus(), 0);
+    } catch (voiceError) {
+      setError(voiceError instanceof Error ? voiceError.message : String(voiceError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveImages(images: PickedImage[]): Promise<void> {
+    if (images.length === 0) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const db = await openDb();
+      const content = draft.content.trim();
+      await createCapture(
+        {
+          kind: content.length > 0 ? 'mixed' : 'photo',
+          content,
+          sessionId: draft.sessionId,
+          attachments: images.map((image, index) => ({
+            type: 'image',
+            filename: image.filename || `photo-${index + 1}.jpg`,
+            localUri: image.uri,
+            mime: image.mime,
+            width: image.width,
+            height: image.height,
+            captured_at: new Date().toISOString(),
+          })),
+        },
+        {
+          db,
+          sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
+        },
+      );
+      await draft.clear();
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setMessage('图片已保存 ✓');
+      void runSyncTick({ db });
+      setTimeout(() => inputRef.current?.focus(), 0);
+    } catch (imageError) {
+      setError(imageError instanceof Error ? imageError.message : String(imageError));
     } finally {
       setSaving(false);
     }
@@ -90,6 +187,17 @@ export function CaptureScreen(): React.ReactElement {
       </View>
 
       {draft.restored ? <Text style={styles.restored}>已恢复上次未完成草稿</Text> : null}
+      {clipboardText && draft.content.trim().length === 0 ? (
+        <Pressable
+          style={styles.clipboard}
+          onPress={() => {
+            draft.setContent(clipboardText);
+            setClipboardText(null);
+          }}
+        >
+          <Text style={styles.clipboardText}>粘贴剪贴板内容</Text>
+        </Pressable>
+      ) : null}
       {message ? <Text style={styles.toast}>{message}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -105,8 +213,24 @@ export function CaptureScreen(): React.ReactElement {
       />
 
       <View style={styles.bottomBar}>
-        <Text style={styles.disabledAction}>🎙</Text>
-        <Text style={styles.disabledAction}>📷</Text>
+        <VoiceButton
+          disabled={saving}
+          onRecorded={(result) => {
+            void saveVoice(result);
+          }}
+          onError={(voiceError) => {
+            setError(voiceError instanceof Error ? voiceError.message : String(voiceError));
+          }}
+        />
+        <ImageButton
+          disabled={saving}
+          onPicked={(images) => {
+            void saveImages(images);
+          }}
+          onError={(imageError) => {
+            setError(imageError instanceof Error ? imageError.message : String(imageError));
+          }}
+        />
         <Text style={styles.disabledAction}>#</Text>
         <Pressable
           accessibilityRole="button"
@@ -154,6 +278,19 @@ const styles = StyleSheet.create({
     color: '#0f766e',
     fontSize: 13,
     marginTop: 8,
+  },
+  clipboard: {
+    backgroundColor: '#f8fafc',
+    borderColor: '#cbd5e1',
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 8,
+    padding: 12,
+  },
+  clipboardText: {
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
   },
   toast: {
     color: '#166534',

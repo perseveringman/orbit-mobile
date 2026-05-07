@@ -14,7 +14,13 @@
     "ios": {
       "bundleIdentifier": "com.orbit.capture",
       "usesIcloudStorage": true,
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Orbit Mobile needs microphone access to save voice captures locally.",
+        "NSSpeechRecognitionUsageDescription": "Orbit Mobile can transcribe voice captures on device when available.",
+        "NSCameraUsageDescription": "Orbit Mobile needs camera access to save photo captures locally.",
+        "NSPhotoLibraryUsageDescription": "Orbit Mobile needs photo library access to save selected images locally."
+      }
     },
     "android": {
       "adaptiveIcon": {

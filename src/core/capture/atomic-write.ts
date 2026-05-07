@@ -14,9 +14,16 @@ import * as capturesRepo from '../storage/captures-repo';
 import { getValue } from '../storage/device-info';
 import * as eventsRepo from '../storage/events-repo';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
+import type { CaptureKind } from '../../types/capture';
 import { buildManifest, contentPreview, serializeManifest } from './manifest';
-import { sha256String } from './hash';
-import type { CaptureManifest, CreateTextCaptureInput } from './types';
+import { sha256File, sha256String } from './hash';
+import type {
+  CaptureAttachment,
+  CaptureManifest,
+  CreateCaptureInput,
+  CreateTextCaptureInput,
+  ManifestAttachment,
+} from './types';
 import { generateCaptureId, generateSessionId } from '../../utils/id';
 import type { FileSystemAdapter } from '../../utils/fs';
 import { expoFileSystem, joinPath } from '../../utils/fs';
@@ -91,9 +98,17 @@ export async function createTextCapture(
   input: CreateTextCaptureInput,
   opts: CreateCaptureOptions,
 ): Promise<AtomicWriteResult> {
+  return createCapture({ ...input, kind: 'thought' }, opts);
+}
+
+export async function createCapture(
+  input: CreateCaptureInput,
+  opts: CreateCaptureOptions,
+): Promise<AtomicWriteResult> {
   const fs = opts.fs ?? expoFileSystem;
   const content = input.content.trim();
-  if (content.length === 0) {
+  const rawAttachments = input.attachments ?? [];
+  if (content.length === 0 && rawAttachments.length === 0) {
     throw new Error('capture.empty_content');
   }
 
@@ -110,15 +125,17 @@ export async function createTextCapture(
     throw new Error('capture.device_id_missing');
   }
 
+  const attachments = await prepareAttachments(fs, rawAttachments);
   const manifest = buildManifest({
     id,
     sourceVersion: opts.sourceVersion ?? '0.0.0',
     deviceId,
     createdAt,
     capturedAtLocal,
-    kind: 'thought',
+    kind: input.kind ?? inferKind(content, attachments),
     content,
     tags: input.tags,
+    attachments,
     inputStartedAt: input.inputStartedAt ?? null,
     inputFinishedAt,
   });
@@ -141,7 +158,7 @@ export async function createTextCapture(
     content_preview: preview,
     byte_size: 0,
     local_path: capturePath,
-    expected_attachments: [],
+    expected_attachments: attachments.map((attachment) => attachment.filename),
     manifest,
   };
 
@@ -151,6 +168,11 @@ export async function createTextCapture(
     maybeFault(opts.fault, 'after_wal');
 
     await fs.ensureDir(stagingPath);
+    for (const attachment of rawAttachments) {
+      const targetPath = joinPath(stagingPath, attachment.filename);
+      await fs.copy(attachment.localUri, targetPath);
+      await fs.fsync(targetPath);
+    }
     await fs.writeString(joinPath(stagingPath, 'manifest.json'), manifestJson);
     await fs.writeString(joinPath(stagingPath, 'manifest.json.sha256'), manifestSha256);
     await fs.fsync(stagingPath);
@@ -170,10 +192,13 @@ export async function createTextCapture(
         id,
         created_at: createdAt,
         captured_at_local: capturedAtLocal,
-        kind: 'thought',
+        kind: manifest.kind,
         content_preview: preview,
         content_hash: manifestSha256,
         byte_size: byteSize,
+        has_audio: manifest.attachments.some((attachment) => attachment.type === 'audio'),
+        has_image: manifest.attachments.some((attachment) => attachment.type === 'image'),
+        attachment_count: manifest.attachments.length,
         local_path: capturePath,
       });
       await eventsRepo.append(txn, id, 'created', { source: 'atomic-write' }, createdAt);
@@ -190,6 +215,57 @@ export async function createTextCapture(
     await fs.delete(stagingPath, { idempotent: true });
     throw error;
   }
+}
+
+async function prepareAttachments(
+  fs: FileSystemAdapter,
+  attachments: CaptureAttachment[],
+): Promise<ManifestAttachment[]> {
+  const prepared: ManifestAttachment[] = [];
+  const seen = new Set<string>();
+  for (const attachment of attachments) {
+    validateAttachmentFilename(attachment.filename);
+    if (seen.has(attachment.filename)) {
+      throw new Error(`capture.duplicate_attachment:${attachment.filename}`);
+    }
+    seen.add(attachment.filename);
+    const info = await fs.getInfo(attachment.localUri);
+    if (!info.exists || info.isDirectory) {
+      throw new Error(`capture.attachment_missing:${attachment.filename}`);
+    }
+    prepared.push({
+      type: attachment.type,
+      filename: attachment.filename,
+      sha256: attachment.sha256 ?? (await sha256File(attachment.localUri)),
+      byte_size: attachment.byte_size ?? info.size ?? 0,
+      mime: attachment.mime,
+      duration_ms: attachment.duration_ms,
+      transcription: attachment.transcription,
+      transcription_source: attachment.transcription_source,
+      transcription_confidence: attachment.transcription_confidence,
+      recorded_at: attachment.recorded_at,
+      width: attachment.width,
+      height: attachment.height,
+      captured_at: attachment.captured_at,
+      original_exif: attachment.original_exif,
+    });
+  }
+  return prepared;
+}
+
+function validateAttachmentFilename(filename: string): void {
+  if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+    throw new Error(`capture.invalid_attachment_filename:${filename}`);
+  }
+}
+
+function inferKind(content: string, attachments: ManifestAttachment[]): CaptureKind {
+  if (attachments.length === 0) return 'thought';
+  const hasAudio = attachments.some((attachment) => attachment.type === 'audio');
+  const hasImage = attachments.some((attachment) => attachment.type === 'image');
+  if (hasAudio && !hasImage) return 'voice';
+  if (hasImage && !hasAudio && content.trim().length === 0) return 'photo';
+  return 'mixed';
 }
 
 export async function directorySize(fs: FileSystemAdapter, path: string): Promise<number> {

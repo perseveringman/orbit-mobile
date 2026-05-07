@@ -3,10 +3,10 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-07（M4 Mac 端 ingest 接入实现）
+**Last updated**: 2026-05-07（M5/M6 语音与图片 Capture 实现）
 **Last updater**: Copilot
-**Current milestone**: **M4 — Mac 端 ingest 接入 implemented**
-**Next milestone**: M5 — 语音 Capture
+**Current milestone**: **M6 — 图片 Capture implemented**
+**Next milestone**: M7 — Share Extension
 
 ---
 
@@ -14,15 +14,15 @@
 
 **当前项目已经是可运行的 Expo SDK 54 TypeScript 项目，并完成 M3：文本 Capture 本地闭环 + iCloud Drive 同步引擎。**
 
-下一步进入 **M5 语音 Capture**，继续遵守附件原始数据无损保留：实时转写只是派生文本，原始 `.m4a` 必须作为 attachment 保留。
+下一步进入 **M7 Share Extension**。必须把 Extension 写入路径接到同一套本地原子写入协议，不能让 Share Extension 直接写 iCloud。
 
-M5 优先实现：
+M7 优先实现：
 
-1. 录音权限与录音器
-2. 原始 `.m4a` attachment 写入五阶段原子协议
-3. iOS speech transcription（或可替换 native wrapper）
-4. 录音中断/杀进程恢复
-5. UI 按住说话 + 转写预览
+1. App Group container path abstraction
+2. Share Extension native target
+3. shared text/url/image → `createCapture`
+4. Extension 写完后主 app reconcile/sync
+5. App Group SQLite/文件锁验证
 
 开始前必读（按顺序）：
 
@@ -40,6 +40,8 @@ M5 优先实现：
 - M3 已实现 native `orbit-icloud-bridge`、JS wrapper、SyncWorker、退避、状态机、iCloud transport 和全局同步 banner。
 - `src/utils/logger.ts` 已改为通过 `orbit-durable-fs.appendText()` 追加写，避免读-拼-写退化。
 - M4 已在 `/Users/ryanbzhou/Developer/new-orbit` 独立分支 `feat/mobile-inbound-ingest` 提交 `9486799 feat(mobile): 接入手机捕获入站`。
+- M5/M6 已把附件纳入同一五阶段原子协议：语音 `.m4a` 和图片都会进入 `captures/<id>/` manifest attachments。
+- 当前语音实时转写未接第三方 `expo-speech-recognition`，只保留 wrapper + 手动转写文本；若继续要求实时转写，需要引入/验证该依赖或自写 native Speech module。
 - M2 已通过自动化验证；飞行模式、冷启动 <1s、真机杀进程恢复仍需人工在真机上执行。
 - M3 已通过自动化验证；iCloud 登录、空间满、Finder 可见性和真机上传状态仍需人工验收。
 - M4 Mac 全量测试有 1 个既有非相关失败：`tests/conversation_store.test.ts` 排序期望；M4 focused test 通过。
@@ -122,8 +124,8 @@ M5 优先实现：
 | M2 原子写入 + 文本 Capture MVP | implemented; manual device validation pending | M1 |
 | M3 同步引擎 + iCloud Bridge | implemented; manual iCloud validation pending | M2 |
 | M4 Mac 端 ingest 接入 | implemented; Mac branch committed | M3 |
-| M5 语音 Capture | in progress | M4 |
-| M6 图片 Capture | not started | M4 |
+| M5 语音 Capture | implemented; realtime transcription pending | M4 |
+| M6 图片 Capture | implemented; thumbnail staging UI pending | M4 |
 | M7 Share Extension | not started | M6 |
 | M8 便捷入口 | not started | M7 |
 
@@ -141,6 +143,7 @@ M5 优先实现：
 - [2026-05-07 M2 原子写入 + 文本 Capture MVP](./plans/2026-05-07-m2-atomic-write-and-capture-ui.md) — **implemented**
 - [2026-05-07 M3 同步引擎 + iCloud Bridge](./plans/2026-05-07-m3-sync-engine-icloud-bridge.md) — **implemented**
 - [2026-05-07 M4 Mac 端 ingest 接入](./plans/2026-05-07-m4-mac-mobile-inbound.md) — **implemented**
+- [2026-05-07 M5/M6 语音与图片 Capture](./plans/2026-05-07-m5-m6-media-capture.md) — **implemented**
 
 ---
 

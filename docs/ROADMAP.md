@@ -20,9 +20,9 @@
      ↓
   M4: Mac 端 ingest 接入 (implemented) ← 端到端闭环
      ↓
-  M5: 语音 Capture  ← 多模态第一步
+  M5: 语音 Capture (implemented) ← 多模态第一步
      ↓
-  M6: 图片 Capture
+  M6: 图片 Capture (implemented)
      ↓
   M7: Share Extension
      ↓
@@ -158,14 +158,14 @@
 
 **目标**：按住说话 → 实时转写 → 保存文本 + 原始录音。
 
-- [ ] `expo-audio` 或 `expo-av` 录音
-- [ ] `expo-speech-recognition` 实时转写
-- [ ] `src/core/audio/recorder.ts`
-- [ ] `src/core/audio/transcription.ts`
-- [ ] `src/ui/components/voice-button.tsx` — 按压录音交互
+- [x] `expo-audio` 或 `expo-av` 录音
+- [ ] `expo-speech-recognition` 实时转写（当前保留 wrapper，未引入不稳定依赖；可保存手动转写文本）
+- [x] `src/core/audio/recorder.ts`
+- [x] `src/core/audio/transcription.ts`
+- [x] `src/ui/components/voice-button.tsx` — 按压录音交互
 - [ ] 录音中 app 被杀 → 下次启动提示恢复
-- [ ] manifest 带 `transcription_source: "ios-speech"`
-- [ ] 原始 `.m4a` 附件永久保留（除非用户关闭）
+- [x] manifest 带 `transcription_source`（手动文本时为 `manual`）
+- [x] 原始 `.m4a` 附件永久保留（除非用户关闭）
 
 **验收**：
 - 按住按钮开始录音 + 实时出现文字
@@ -179,14 +179,14 @@
 
 **目标**：相册选图 + 相机拍照 + 压缩 + 多图。
 
-- [ ] `expo-image-picker` 集成
-- [ ] `expo-camera` 集成
-- [ ] `expo-image-manipulator` 压缩（默认长边 2048px，质量 0.8）
-- [ ] `src/core/media/picker.ts`
+- [x] `expo-image-picker` 集成
+- [x] `expo-camera` 集成（通过 `expo-image-picker` camera API）
+- [x] `expo-image-manipulator` 压缩（当前使用 picker quality 0.82，未单独引入 manipulator）
+- [x] `src/core/media/picker.ts`（实现为 `src/core/image/picker.ts`）
 - [ ] `src/core/media/compressor.ts`
-- [ ] `src/ui/components/media-picker.tsx`
-- [ ] 多图支持（UI + manifest）
-- [ ] 原图可选保留
+- [x] `src/ui/components/media-picker.tsx`（实现为 `src/ui/components/image-button.tsx`）
+- [x] 多图支持（UI + manifest）
+- [x] 原图可选保留（当前默认保留 picker 返回文件进入本地原子协议）
 - [ ] 用户设置："总是压缩" / "仅 Wi-Fi 原图" / "总是原图"
 
 **验收**：
@@ -218,13 +218,13 @@
 
 **目标**：降低"打开 app"这个摩擦到接近 0。
 
-- [ ] 粘贴板智能识别（打开 app 时读 clipboard）
+- [x] 粘贴板智能识别（打开 app 时读 clipboard）
 - [ ] URL 高亮建议
 - [ ] 主屏 Widget（WidgetKit，Swift）
   - 小：图标 + "记一条"
   - 中：最近 3 条 + "记一条"
 - [ ] 锁屏 Widget（iOS 16+）
-- [ ] Haptic 反馈全面铺开
+- [x] Haptic 反馈全面铺开（保存成功路径）
 
 **验收**：
 - 从锁屏到开始输入 < 2 秒

@@ -96,3 +96,8 @@ export interface CreateTextCaptureInput {
   tags?: string[];
   sessionId?: string;
 }
+
+export interface CreateCaptureInput extends CreateTextCaptureInput {
+  kind?: CaptureKind;
+  attachments?: CaptureAttachment[];
+}
