@@ -21,6 +21,7 @@ import type { SQLiteDatabaseLike, SQLiteValue } from './sqlite';
 export const DB_NAME = 'orbit.db';
 
 let dbInstance: SQLiteDatabaseLike | null = null;
+let dbOpenPromise: Promise<SQLiteDatabaseLike> | null = null;
 
 function bindParams(params: SQLiteValue[]): SQLiteBindParams {
   return params;
@@ -51,15 +52,27 @@ export async function openDb(): Promise<SQLiteDatabaseLike> {
   if (dbInstance) {
     return dbInstance;
   }
+  if (dbOpenPromise) {
+    return dbOpenPromise;
+  }
 
-  const sqliteDb = await SQLite.openDatabaseAsync(DB_NAME);
-  const db = toDatabaseLike(sqliteDb);
-  await db.execAsync(`PRAGMA journal_mode = WAL;`);
-  await db.execAsync(`PRAGMA foreign_keys = ON;`);
-  await runMigrations(db);
-  await getOrInit(db, 'device_id', generateDeviceId);
-  dbInstance = db;
-  return dbInstance;
+  dbOpenPromise = (async () => {
+    const sqliteDb = await SQLite.openDatabaseAsync(DB_NAME);
+    const db = toDatabaseLike(sqliteDb);
+    await db.execAsync(`PRAGMA journal_mode = WAL;`);
+    await db.execAsync(`PRAGMA foreign_keys = ON;`);
+    await runMigrations(db);
+    await getOrInit(db, 'device_id', generateDeviceId);
+    dbInstance = db;
+    return db;
+  })();
+
+  try {
+    return await dbOpenPromise;
+  } catch (error) {
+    dbOpenPromise = null;
+    throw error;
+  }
 }
 
 export function getDb(): SQLiteDatabaseLike {
@@ -71,11 +84,13 @@ export function getDb(): SQLiteDatabaseLike {
 
 export async function closeDb(): Promise<void> {
   if (!dbInstance) {
+    dbOpenPromise = null;
     return;
   }
 
   await dbInstance.closeAsync?.();
   dbInstance = null;
+  dbOpenPromise = null;
 }
 
 export async function transaction<T>(
