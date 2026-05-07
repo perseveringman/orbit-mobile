@@ -87,16 +87,16 @@ npm install -D \
 {
   "expo": {
     "ios": {
-      "bundleIdentifier": "com.orbit.capture",
+      "bundleIdentifier": "com.zhouyanbo.orbit.capture",
       "entitlements": {
         "com.apple.developer.icloud-container-identifiers": [
-          "iCloud.com.orbit.capture"
+          "iCloud.com.zhouyanbo.orbit.capture"
         ],
         "com.apple.developer.icloud-services": [
           "CloudDocuments"
         ],
         "com.apple.developer.ubiquity-container-identifiers": [
-          "iCloud.com.orbit.capture"
+          "iCloud.com.zhouyanbo.orbit.capture"
         ]
       }
     }
@@ -111,7 +111,7 @@ npm install -D \
 （M3 开工时做）
 
 1. Apple Developer Portal → Certificates, IDs & Profiles → Identifiers
-2. 新建 iCloud Container：`iCloud.com.orbit.capture`
+2. 新建 iCloud Container：`iCloud.com.zhouyanbo.orbit.capture`
 3. 在 App ID 里绑定该 Container
 4. 重新生成 provisioning profile
 
@@ -240,7 +240,7 @@ logger.error('atomic.phase3', err, { captureId });
 # 真机：通过 Xcode > Window > Devices and Simulators > 选设备 > 下载 app container
 
 # Simulator：
-xcrun simctl get_app_container booted com.orbit.capture data
+xcrun simctl get_app_container booted com.zhouyanbo.orbit.capture data
 # 输出路径下就是沙盒
 ```
 
@@ -250,7 +250,7 @@ Finder 侧边栏 → iCloud Drive → Orbit Capture
 
 或命令行：
 ```bash
-ls "$HOME/Library/Mobile Documents/iCloud~com.orbit.capture/Documents/"
+ls "$HOME/Library/Mobile Documents/iCloud~com.zhouyanbo.orbit.capture/Documents/"
 ```
 
 ### 6.3 查看 SQLite

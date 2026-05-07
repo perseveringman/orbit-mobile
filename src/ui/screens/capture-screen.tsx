@@ -27,6 +27,7 @@ import {
 
 import { createCapture, createTextCapture } from '../../core/capture/atomic-write';
 import { runReconcile } from '../../core/reconcile/reconcile-job';
+import { importShareInbox } from '../../core/share/share-inbox';
 import { openDb } from '../../core/storage/db';
 import { runSyncTick } from '../../core/sync/worker';
 import type { VoiceRecordingResult } from '../../core/audio/recorder';
@@ -46,7 +47,11 @@ export function CaptureScreen(): React.ReactElement {
   useEffect(() => {
     const focusHandle = setTimeout(() => inputRef.current?.focus(), 50);
     openDb()
-      .then((db) => runReconcile({ db }))
+      .then(async (db) => {
+        const imported = await importShareInbox({ db });
+        if (imported > 0) setMessage(`已导入 ${imported} 条分享`);
+        await runReconcile({ db });
+      })
       .catch((reconcileError: unknown) => {
         setError(reconcileError instanceof Error ? reconcileError.message : String(reconcileError));
       });

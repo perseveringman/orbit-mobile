@@ -28,7 +28,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>orbit-mobile</string>
-				<string>com.orbit.capture</string>
+				<string>com.zhouyanbo.orbit.capture</string>
 			</array>
 		</dict>
 	</array>

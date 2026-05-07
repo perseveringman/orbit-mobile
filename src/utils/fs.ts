@@ -3,13 +3,11 @@
  *
  * DOCUMENTS_DIR / ensureDir / fsync
  *
- * ⚠️ fsync 是 M2 原子写入协议的硬依赖。expo-file-system 当前版本
- * 不直接暴露 fsync——M1 留 noop 占位；M2 必须补 native 实现
- * （候选：expo-file-system-next 的 openAsync({append:true}) / 自写 module）
+ * ⚠️ fsync 是原子写入协议的硬依赖。expo-file-system 当前版本
+ * 不直接暴露 fsync；M2 起通过 OrbitDurableFS Development Build 原生模块提供。
  *
  * @see docs/ARCHITECTURE.md §5
  *
- * TODO(M2): 真正的 fsync 实现
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
@@ -39,6 +37,7 @@ export interface FileSystemAdapter {
 interface DurableFsNativeModule {
   fsync(path: string): Promise<void>;
   appendText(path: string, text: string): Promise<void>;
+  appGroupContainerPath(groupId: string): Promise<string>;
 }
 
 let durableFs: DurableFsNativeModule | null | undefined;
@@ -92,6 +91,10 @@ export async function fsync(path: string): Promise<void> {
 
 export async function appendText(path: string, text: string): Promise<void> {
   await getDurableFs().appendText(path, text);
+}
+
+export async function appGroupContainerPath(groupId: string): Promise<string> {
+  return getDurableFs().appGroupContainerPath(groupId);
 }
 
 export const expoFileSystem: FileSystemAdapter = {

@@ -20,5 +20,9 @@ export function requireNativeModule<T>(name: string): T {
       void text;
       return Promise.resolve();
     },
+    appGroupContainerPath: (groupId: string) => {
+      void groupId;
+      return Promise.resolve('/app-group');
+    },
   } as T;
 }

@@ -97,7 +97,7 @@
 
 **iCloud Container**（Layer 3）：
 ```
-~/Library/Mobile Documents/iCloud~com.orbit.capture/Documents/
+~/Library/Mobile Documents/iCloud~com.zhouyanbo.orbit.capture/Documents/
 ├── inbox/                                # 待 Mac 消费
 │   └── <id>/
 │       ├── manifest.json

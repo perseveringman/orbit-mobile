@@ -3,26 +3,26 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-07（M7/M8 native target 阻塞记录）
+**Last updated**: 2026-05-07（M7/M8 native entrypoints implemented）
 **Last updater**: Copilot
-**Current milestone**: **M7/M8 — native target work blocked**
-**Next milestone**: 生成 iOS 工程后补 Share Extension + WidgetKit
+**Current milestone**: **M7/M8 — implemented; device validation pending**
+**Next milestone**: TestFlight 前真机验收 + 实时转写/媒体设置补齐
 
 ---
 
 ## 🔴 给下一个 AI 的最重要信息
 
-**当前项目已经是可运行的 Expo SDK 54 TypeScript 项目，并完成 M3：文本 Capture 本地闭环 + iCloud Drive 同步引擎。**
+**当前项目已经是可运行的 Expo SDK 54 TypeScript + iOS Development Build 项目，并完成 M2-M8 MVP 主链路：本地原子 Capture、iCloud Drive 同步、Mac inbound、语音/图片附件、Share Extension、Widget 入口。**
 
-下一步需要先生成并接管 `ios/` 工程，然后才能完成 **M7 Share Extension** 与 **M8 WidgetKit**。必须把 Extension 写入路径接到同一套本地原子写入协议，不能让 Share Extension 直接写 iCloud。
+M7/M8 已接入原生入口：Share Extension 只写 App Group `share-inbox/` 交换目录，主 app 启动后通过 `createCapture()` 导入，继续走同一套五阶段本地原子写入协议；WidgetKit 只 deep link 到主 Capture。Extension/Widget 都不直接写 iCloud。
 
-M7 优先实现：
+TestFlight 前优先验收：
 
-1. `npx expo prebuild --platform ios` 后保留 native 工程
-2. App Group entitlement: `group.com.orbit.capture`
-3. Share Extension target + shared text/url/image → `createCapture`
-4. Widget Extension target + deep link 到主 Capture
-5. 真机验证 App Group SQLite/文件锁/Widget deep link
+1. Development Build 真机：打开 app → 输入 → 保存 → 杀进程 → 重启 → 数据完整
+2. iCloud Drive 真机：保存后 Finder 可见 `inbox/<id>/`，Mac inbound 自动 ingest 并写 ACK
+3. Share Extension 真机：Safari/text/image → Orbit → 保存后主 app 列表可见
+4. Widget 真机：主屏/锁屏 Widget deep link 到 Capture，锁屏到输入 <2 秒
+5. iCloud 异常：飞行模式、未登录、空间满时本地 Capture 完整，失败状态可见
 
 开始前必读（按顺序）：
 
@@ -31,7 +31,7 @@ M7 优先实现：
 3. 本文件（你现在读的）
 4. `docs/ARCHITECTURE.md`
 5. `docs/DATA-MODEL.md` §2 attachments
-6. `docs/ROADMAP.md` M5
+6. `docs/ROADMAP.md` M7/M8
 
 **重要实现备注**：
 
@@ -39,13 +39,14 @@ M7 优先实现：
 - `src/utils/fs.ts` 的 `fsync()` 不再是 noop；运行时依赖本地 Expo native module `orbit-durable-fs`。
 - 从 M2 起不能使用 Expo Go；必须使用 Development Build。`Cannot find native module 'OrbitDurableFS'` 表示尚未 `npx expo prebuild --platform ios && npx expo run:ios`。
 - 已生成 `ios/` 工程，并为 `orbit-durable-fs` / `orbit-icloud-bridge` 补齐 podspec；`expo-modules-autolinking resolve --platform ios` 能识别两个本地模块。
-- 当前本机 `npx expo run:ios` 阻塞于 Xcode 15.1：CocoaPods 报 `Please upgrade XCode`。升级 Xcode 后重跑 `npx expo run:ios`。
+- 当前本机已升级到 Xcode 26.4.1；`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 通过。
 - M3 已实现 native `orbit-icloud-bridge`、JS wrapper、SyncWorker、退避、状态机、iCloud transport 和全局同步 banner。
 - `src/utils/logger.ts` 已改为通过 `orbit-durable-fs.appendText()` 追加写，避免读-拼-写退化。
 - M4 已在 `/Users/ryanbzhou/Developer/new-orbit` 独立分支 `feat/mobile-inbound-ingest` 提交 `9486799 feat(mobile): 接入手机捕获入站`。
 - M5/M6 已把附件纳入同一五阶段原子协议：语音 `.m4a` 和图片都会进入 `captures/<id>/` manifest attachments。
 - 当前语音实时转写未接第三方 `expo-speech-recognition`，只保留 wrapper + 手动转写文本；若继续要求实时转写，需要引入/验证该依赖或自写 native Speech module。
-- M8 的剪贴板建议和保存成功 haptic 已实现；WidgetKit/锁屏 Widget 仍需 native iOS target。
+- M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`，主 app 启动后导入到本地原子 Capture。
+- M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget，deep link 到 `orbit-mobile://`。
 - M2 已通过自动化验证；飞行模式、冷启动 <1s、真机杀进程恢复仍需人工在真机上执行。
 - M3 已通过自动化验证；iCloud 登录、空间满、Finder 可见性和真机上传状态仍需人工验收。
 - M4 Mac 全量测试有 1 个既有非相关失败：`tests/conversation_store.test.ts` 排序期望；M4 focused test 通过。
@@ -75,7 +76,7 @@ M7 优先实现：
 - [x] 2026-05-07 Expo 项目实际 bootstrap（SDK 55 blank TypeScript）
 - [x] 2026-05-07 `package.json` + `app.json` + `tsconfig.json` + ESLint flat config + Prettier
 - [x] 2026-05-07 首次 `npm install` 完成
-- [x] 2026-05-07 iOS bundle identifier 占位：`com.orbit.capture`
+- [x] 2026-05-07 iOS bundle identifier：`com.zhouyanbo.orbit.capture`
 - [x] 2026-05-06 Git 仓库初始化 + 首次 commit（`init`）
 
 ### 🎯 M0 完成标准
@@ -130,8 +131,8 @@ M7 优先实现：
 | M4 Mac 端 ingest 接入 | implemented; Mac branch committed | M3 |
 | M5 语音 Capture | implemented; realtime transcription pending | M4 |
 | M6 图片 Capture | implemented; thumbnail staging UI pending | M4 |
-| M7 Share Extension | blocked: generated ios/ + native target required | M6 |
-| M8 便捷入口 | partial: clipboard/haptic done; widgets blocked on native target | M7 |
+| M7 Share Extension | implemented; true-device share sheet validation pending | M6 |
+| M8 便捷入口 | implemented; lock-screen/widget timing validation pending | M7 |
 
 ---
 
@@ -159,7 +160,7 @@ M7 优先实现：
 | iCloud 同步延迟不可控 | Apple 不承诺秒级 | UI 层透明展示状态，不让用户误以为卡住 |
 | iCloud native module 需 capability 验证 | 本地 module 已实现，Apple Developer capability / EAS 配置需真机确认 | M3 手动验收时确认 iCloud Drive 可见 |
 | `expo-speech-recognition` 稳定性 | 新 API，实机可能有坑 | M5 开工时先做 spike，不行就自写 native module |
-| App Group 共享存储复杂度 | Share Extension 需要 | M7 时评估，若太复杂可先用简单 iCloud 中转 |
+| App Group 共享存储复杂度 | Share Extension 已采用 App Group inbox + 主 app 导入，避免 extension 直接写 SQLite | 真机分享和杀进程导入场景验收 |
 | iCloud Container 权限审核 | App Store 审核可能要求说明 | 隐私说明文档 + 明示数据流向 |
 
 ---

@@ -24,9 +24,9 @@
      ↓
   M6: 图片 Capture (implemented)
      ↓
-  M7: Share Extension (blocked: native target required)
-     ↓
-  M8: 粘贴板 + Widget 等便捷入口 (partial)
+   M7: Share Extension (implemented)
+      ↓
+   M8: 粘贴板 + Widget 等便捷入口 (implemented)
      ↓
   MVP 发布！
      ↓
@@ -200,12 +200,12 @@
 
 **目标**：从其他 app 分享菜单直达 Orbit Mobile。
 
-- [ ] 原生 Share Extension target（需要生成 `ios/` 工程 + App Group entitlement）
-- [ ] 接收 URL / 文本 / 图片 / 多类型组合
-- [ ] 最小 UI：预览 + 标签 + "保存"
-- [ ] 共享 App Group（Share Extension 和主 app 共享 SQLite + 文件系统）
+- [x] 原生 Share Extension target（`ios/OrbitShareExtension` + App Group entitlement）
+- [x] 接收 URL / 文本 / 图片 / 多类型组合
+- [x] 最小 UI：预览 + "保存"
+- [x] 共享 App Group（Extension 写 `share-inbox/`，主 app 导入后走 SQLite + 文件系统原子协议）
 - [ ] 对 URL 自动抓取标题（若能）
-- [ ] 保存后不弹回主 app（留在原 app）
+- [x] 保存后不弹回主 app（留在原 app）
 
 **验收**：
 - Safari 分享 → 选 Orbit → 3 秒内完成保存
@@ -220,10 +220,10 @@
 
 - [x] 粘贴板智能识别（打开 app 时读 clipboard）
 - [ ] URL 高亮建议
-- [ ] 主屏 Widget（WidgetKit，Swift；需要生成 `ios/` 工程 + Widget Extension target）
+- [x] 主屏 Widget（WidgetKit，Swift；`ios/OrbitWidgets` target）
   - 小：图标 + "记一条"
-  - 中：最近 3 条 + "记一条"
-- [ ] 锁屏 Widget（iOS 16+）
+  - 中：Capture 快捷入口（最近 3 条待后续共享只读摘要）
+- [x] 锁屏 Widget（iOS 16+）
 - [x] Haptic 反馈全面铺开（保存成功路径）
 
 **验收**：

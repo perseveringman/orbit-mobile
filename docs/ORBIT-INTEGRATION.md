@@ -40,7 +40,7 @@ iOS 端的数据通过 iCloud Drive 到达 Mac，但 Mac 端 Orbit 还没有**�
 ### 3.1 目录结构
 
 ```
-~/Library/Mobile Documents/iCloud~com.orbit.capture/Documents/
+~/Library/Mobile Documents/iCloud~com.zhouyanbo.orbit.capture/Documents/
 ├── inbox/<id>/
 │   ├── manifest.json                    ← iOS 写入
 │   ├── manifest.json.sha256             ← iOS 写入
@@ -237,7 +237,7 @@ export async function getICloudInboxPath(): Promise<string | null> {
     os.homedir(),
     'Library',
     'Mobile Documents',
-    'iCloud~com.orbit.capture',
+    'iCloud~com.zhouyanbo.orbit.capture',
     'Documents',
     'inbox',
   );
@@ -253,9 +253,9 @@ export async function getICloudInboxPath(): Promise<string | null> {
 ```
 
 **Bundle ID 必须两边对齐**：
-- iOS app 的 Bundle ID: `com.orbit.capture`（或你定的）
-- iCloud Container ID: `iCloud.com.orbit.capture`
-- Mac 端路径：`iCloud~com.orbit.capture`（波浪号替换了点）
+- iOS app 的 Bundle ID: `com.zhouyanbo.orbit.capture`（或你定的）
+- iCloud Container ID: `iCloud.com.zhouyanbo.orbit.capture`
+- Mac 端路径：`iCloud~com.zhouyanbo.orbit.capture`（波浪号替换了点）
 
 **注意**：Bundle ID 一旦上线不能改。现在就要定下来。
 
@@ -337,7 +337,7 @@ async function closeVaultRuntime(vaultPath: string) {
 
 ## 6. 路径选项：应用前缀
 
-**推荐 Bundle ID**：`com.orbit.capture`
+**当前 Bundle ID**：`com.zhouyanbo.orbit.capture`
 
 **替代选项**（如果 ID 已被占用）：
 - `com.your-handle.orbit-capture`
@@ -349,7 +349,7 @@ Mac 端配置从环境变量或 Orbit settings 读取：
 
 ```ts
 const ICLOUD_BUNDLE = process.env.ORBIT_MOBILE_ICLOUD_BUNDLE 
-  || 'com.orbit.capture';
+  || 'com.zhouyanbo.orbit.capture';
 ```
 
 开发期可以用本地配置覆盖。

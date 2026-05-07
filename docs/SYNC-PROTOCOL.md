@@ -24,7 +24,7 @@
    ↓ 写入
  iCloud Drive Container
    ↓ Apple 自动同步
- Mac: ~/Library/Mobile Documents/iCloud~com.orbit.capture/Documents/
+ Mac: ~/Library/Mobile Documents/iCloud~com.zhouyanbo.orbit.capture/Documents/
    ↓ chokidar 监听
  Mac Orbit mobile_inbound watcher
    ↓ ingest
@@ -46,7 +46,7 @@
 ## 3. iCloud Container 结构
 
 ```
-iCloud Drive/iCloud~com.orbit.capture/Documents/
+iCloud Drive/iCloud~com.zhouyanbo.orbit.capture/Documents/
 ├── inbox/                     # 待 Mac 消费
 │   ├── <id>/                  # 每条 capture 一个目录
 │   │   ├── manifest.json
@@ -341,7 +341,7 @@ iCloudBridge.subscribeToChanges('failed/', (event) => {
 
 Share Extension 是**独立进程**。为了让它能写主 app 的 SQLite 和文件系统：
 
-1. 配置 **App Group**（如 `group.com.orbit.capture`）
+1. 配置 **App Group**（如 `group.com.zhouyanbo.orbit.capture`）
 2. SQLite 和 `captures/` 目录放 App Group 共享容器
 3. Extension 进程**直接走同样的原子写入协议**
 4. 写完后**不触发 SyncWorker**（Extension 可能立刻被系统杀）

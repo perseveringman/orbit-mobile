@@ -47,6 +47,13 @@ public class OrbitDurableFSModule: Module {
       try handle.write(contentsOf: data)
       try handle.synchronize()
     }
+
+    AsyncFunction("appGroupContainerPath") { (groupId: String) throws -> String in
+      guard let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupId) else {
+        throw FsyncException("app group container unavailable: \(groupId)")
+      }
+      return url.absoluteString
+    }
   }
 }
 

@@ -25,6 +25,9 @@
         ],
         "com.apple.developer.ubiquity-container-identifiers": [
           "iCloud.com.zhouyanbo.orbit.capture"
+        ],
+        "com.apple.security.application-groups": [
+          "group.com.zhouyanbo.orbit.capture"
         ]
       },
       "infoPlist": {

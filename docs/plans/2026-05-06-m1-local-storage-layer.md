@@ -188,7 +188,7 @@ export default defineConfig({
 });
 ```
 
-**2.7 `app.json`** `expo.ios.bundleIdentifier` 改为 `"com.orbit.capture"`（M3 加 iCloud entitlements，本 M1 不加）。
+**2.7 `app.json`** `expo.ios.bundleIdentifier` 改为 `"com.zhouyanbo.orbit.capture"`（M3 加 iCloud entitlements，本 M1 不加）。
 
 **2.8 commit**：`chore(m1): setup typescript/eslint/prettier/vitest tooling`
 
