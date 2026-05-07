@@ -37,6 +37,7 @@ M7 优先实现：
 
 - M2 已实现本地文本 Capture：manifest/hash、五阶段原子写入、reconcile、自愈、草稿和 Expo Router UI。
 - `src/utils/fs.ts` 的 `fsync()` 不再是 noop；运行时依赖本地 Expo native module `orbit-durable-fs`。
+- 从 M2 起不能使用 Expo Go；必须使用 Development Build。`Cannot find native module 'OrbitDurableFS'` 表示尚未 `npx expo prebuild --platform ios && npx expo run:ios`。
 - M3 已实现 native `orbit-icloud-bridge`、JS wrapper、SyncWorker、退避、状态机、iCloud transport 和全局同步 banner。
 - `src/utils/logger.ts` 已改为通过 `orbit-durable-fs.appendText()` 追加写，避免读-拼-写退化。
 - M4 已在 `/Users/ryanbzhou/Developer/new-orbit` 独立分支 `feat/mobile-inbound-ingest` 提交 `9486799 feat(mobile): 接入手机捕获入站`。

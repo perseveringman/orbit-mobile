@@ -41,7 +41,24 @@ interface DurableFsNativeModule {
   appendText(path: string, text: string): Promise<void>;
 }
 
-const durableFs = requireNativeModule<DurableFsNativeModule>('OrbitDurableFS');
+let durableFs: DurableFsNativeModule | null | undefined;
+
+function getDurableFs(): DurableFsNativeModule {
+  if (durableFs !== undefined) {
+    if (durableFs === null) {
+      throw new Error('filesystem.native_module_unavailable:use_development_build');
+    }
+    return durableFs;
+  }
+
+  try {
+    durableFs = requireNativeModule<DurableFsNativeModule>('OrbitDurableFS');
+    return durableFs;
+  } catch {
+    durableFs = null;
+    throw new Error('filesystem.native_module_unavailable:use_development_build');
+  }
+}
 
 export function requireDocumentsDir(): string {
   if (!DOCUMENTS_DIR) {
@@ -70,11 +87,11 @@ export async function readString(path: string): Promise<string> {
 }
 
 export async function fsync(path: string): Promise<void> {
-  await durableFs.fsync(path);
+  await getDurableFs().fsync(path);
 }
 
 export async function appendText(path: string, text: string): Promise<void> {
-  await durableFs.appendText(path, text);
+  await getDurableFs().appendText(path, text);
 }
 
 export const expoFileSystem: FileSystemAdapter = {

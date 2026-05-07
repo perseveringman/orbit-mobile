@@ -119,11 +119,40 @@ npm install -D \
 
 ## 3. 常用命令
 
+### 3.1 Development Build（M2 起必需）
+
+从 M2 起，Orbit Mobile 依赖两个自定义原生模块：
+
+- `modules/orbit-durable-fs/`：真实 `fsync()` / native append，支撑本地原子写入
+- `modules/orbit-icloud-bridge/`：iCloud Drive container / upload / ACK 通道
+
+**Expo Go 不包含这些自定义 native module，因此 M2+ 不能再用 Expo Go 调试。** 如果看到 `Cannot find native module 'OrbitDurableFS'`，说明正在用 Expo Go 或尚未重新编译 Development Build。
+
+首次生成并运行 iOS Development Build：
+
+```bash
+npx expo prebuild --platform ios
+npx expo run:ios
+
+# 真机（Capture/iCloud 推荐）
+npx expo run:ios --device
+```
+
+之后的开发流：
+
+- 改 JS/TS/TSX：`npm start` 后热重载
+- 改 `modules/**/ios/*.swift`：必须重新运行 `npx expo run:ios`
+- Share Extension / WidgetKit（M7/M8）：需要保留并维护生成的 `ios/` 工程
+
+前置要求：完整 Xcode、CocoaPods、真机调试时 Xcode 登录 Apple ID。
+
+### 3.2 常用脚本
+
 ```bash
 # 开发模式
 npm start                     # Expo Metro bundler
-npm run ios                   # 启动 iOS simulator
-npm run ios -- --device       # 启动真机调试
+npm run ios                   # Development Build 跑 iOS simulator
+npm run ios -- --device       # Development Build 跑真机调试
 
 # 构建
 eas build --platform ios      # 需要 Expo Application Services
