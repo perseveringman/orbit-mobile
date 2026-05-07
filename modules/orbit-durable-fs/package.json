@@ -1,0 +1,7 @@
+{
+  "name": "orbit-durable-fs",
+  "version": "0.0.0",
+  "description": "Orbit Mobile durable fsync native module",
+  "main": "src/index.ts",
+  "private": true
+}

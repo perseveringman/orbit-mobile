@@ -9,5 +9,13 @@
     },
     "types": ["node"]
   },
-  "include": ["src/**/*", "tests/**/*", "App.tsx", "index.ts", "vitest.config.ts", "eslint.config.mjs"]
+  "include": [
+    "app/**/*",
+    "src/**/*",
+    "tests/**/*",
+    "App.tsx",
+    "index.ts",
+    "vitest.config.ts",
+    "eslint.config.mjs"
+  ]
 }

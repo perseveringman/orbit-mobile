@@ -1,5 +1,5 @@
 ---
-status: draft
+status: implemented
 milestone: M2
 depends_on: M1
 created: 2026-05-07
@@ -58,16 +58,23 @@ M2 结束时，用户可以在手机主界面输入文本并保存。保存必�
 
 ## 验收标准
 
-- [ ] 飞行模式下可保存文本
-- [ ] 正常保存后 `captures/<id>/` 完整且 SQLite 有记录
-- [ ] 列表显示所有未删除 capture
-- [ ] 输入中杀进程后草稿可恢复
-- [ ] 保存中崩溃不会出现半成品
-- [ ] `npm run typecheck` / `npm run lint` / `npm run test` 全绿
-- [ ] `docs/STATUS.md` 和 `docs/ROADMAP.md` 更新
+- [ ] 飞行模式下可保存文本（需真机手动验收）
+- [x] 正常保存后 `captures/<id>/` 完整且 SQLite 有记录
+- [x] 列表显示所有未删除 capture
+- [x] 输入中杀进程后草稿可恢复（实现已接入；真机杀进程需手动复核）
+- [x] 保存中崩溃不会出现半成品（fault injection + reconcile 单元测试覆盖）
+- [x] `npm run typecheck` / `npm run lint` / `npm run test` 全绿
+- [x] `docs/STATUS.md` 和 `docs/ROADMAP.md` 更新
 
 ## 注意事项
 
 - `fsync()` 不能继续 noop 后直接宣称原子写入完成。
 - ReconcileJob 不能阻塞首屏输入，UI 可先渲染，后台再自愈。
 - 同步状态只是附加元数据，保存成功不依赖 iCloud。
+
+## 实施结果
+
+- `fsync()` 已改为本地 Expo native module `orbit-durable-fs`，iOS 侧调用 `F_FULLFSYNC` 并回退到 POSIX `fsync`；不再允许 noop。
+- 文本 Capture 走 `wal/`、`.staging/`、final rename、`.complete`、SQLite transaction、cleanup 的本地原子流程。
+- 启动 reconcile 会补齐完整 capture 的 SQLite 行、清理 staging、隔离不完整 capture 到 `dead-letter/`，并把卡住的 `syncing` 状态重置为 `pending`。
+- UI 已切到 Expo Router：主输入、最近列表、只读详情、pending 同步徽章和草稿恢复。

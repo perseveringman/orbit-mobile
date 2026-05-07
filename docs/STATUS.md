@@ -3,40 +3,40 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-07（M0 骨架 + M1 本地存储层完成）
+**Last updated**: 2026-05-07（M2 原子写入 + 文本 Capture 实现）
 **Last updater**: Copilot
-**Current milestone**: **M1 — 本地存储层 completed**
-**Next milestone**: M2 — 原子写入 + 文本 Capture MVP
+**Current milestone**: **M2 — 原子写入 + 文本 Capture implemented**
+**Next milestone**: M3 — 同步引擎 + iCloud Bridge
 
 ---
 
 ## 🔴 给下一个 AI 的最重要信息
 
-**当前项目已经是可运行的 Expo SDK 55 TypeScript 项目，并完成 M1 本地存储层。**
+**当前项目已经是可运行的 Expo SDK 54 TypeScript 项目，并完成 M2 文本 Capture 本地闭环。**
 
-下一步请从 **M2 原子写入 + 文本 Capture MVP** 开始，优先实现：
+下一步请从 **M3 同步引擎 + iCloud Bridge** 开始，优先实现：
 
-1. `src/core/capture/manifest.ts`
-2. `src/core/capture/hash.ts`
-3. `src/core/capture/atomic-write.ts`
-4. `src/core/reconcile/reconcile-job.ts`
-5. 最小文本 Capture UI
+1. native iCloud Bridge / entitlements
+2. `src/core/sync/state-machine.ts`
+3. `src/core/sync/worker.ts`
+4. iCloud transport + backoff
+5. 全局同步状态 UI
 
 开始前必读（按顺序）：
 
 1. `AGENTS.md`
 2. `docs/VISION.md`
 3. 本文件（你现在读的）
-4. `docs/ARCHITECTURE.md` §5 原子写入协议
-5. `docs/DATA-MODEL.md` §2 manifest schema
-6. `docs/plans/2026-05-07-m2-atomic-write-and-capture-ui.md`
+4. `docs/SYNC-PROTOCOL.md`
+5. `docs/ORBIT-INTEGRATION.md`
+6. `docs/ARCHITECTURE.md` §6 同步引擎
 
 **重要实现备注**：
 
-- M1 仅实现 SQLite schema / migration / repo / 基础工具，不包含真正的 `captures/<id>/` 原子写入；那是 M2。
-- `src/utils/fs.ts` 的 `fsync()` 目前是 noop，占位给 M2；真正原子写入前必须补 native fsync 或等价方案。
+- M2 已实现本地文本 Capture：manifest/hash、五阶段原子写入、reconcile、自愈、草稿和 Expo Router UI。
+- `src/utils/fs.ts` 的 `fsync()` 不再是 noop；运行时依赖本地 Expo native module `orbit-durable-fs`。
 - `src/utils/logger.ts` 目前用读-拼-写模拟 append，M3 前必须替换为真正 append。
-- `App.tsx` 是 M1 smoke screen：显示 `Hello Orbit` 并写入一条本地测试 capture。M2 会用真实 Capture UI 替换。
+- M2 已通过自动化验证；飞行模式、冷启动 <1s、真机杀进程恢复仍需人工在真机上执行。
 
 ---
 
@@ -113,8 +113,8 @@
 |---|---|---|
 | M0 文档与项目骨架 | completed | - |
 | M1 本地存储层 | completed | M0 |
-| M2 原子写入 + 文本 Capture MVP | next | M1 |
-| M3 同步引擎 + iCloud Bridge | not started | M2 |
+| M2 原子写入 + 文本 Capture MVP | implemented; manual device validation pending | M1 |
+| M3 同步引擎 + iCloud Bridge | in progress | M2 |
 | M4 Mac 端 ingest 接入 | not started | M3 |
 | M5 语音 Capture | not started | M4 |
 | M6 图片 Capture | not started | M4 |
@@ -126,11 +126,12 @@
 ## 关键决策记录
 
 - [ADR-001](./decisions/ADR-001-local-first-three-layer-storage.md) — 2026-05-06 · **accepted** · 本地优先的三层存储架构（Hot Cache / Durable Local / iCloud Transport）
+- [ADR-002](./decisions/ADR-002-native-durable-fsync.md) — 2026-05-07 · **accepted** · M2 原子写入必须通过 native durable fsync，不允许 JS noop
 
 ## 已有 Plans
 
 - [2026-05-06 M1 本地存储层](./plans/2026-05-06-m1-local-storage-layer.md) — **completed**
-- [2026-05-07 M2 原子写入 + 文本 Capture MVP](./plans/2026-05-07-m2-atomic-write-and-capture-ui.md) — **draft**
+- [2026-05-07 M2 原子写入 + 文本 Capture MVP](./plans/2026-05-07-m2-atomic-write-and-capture-ui.md) — **implemented**
 
 ---
 
@@ -138,7 +139,7 @@
 
 | 风险 | 说明 | 缓解计划 |
 |---|---|---|
-| `fsync()` 尚未真实实现 | M1 只保留签名，M2 原子写入需要真正落盘保证 | M2 开始先做 native fsync / 等价方案 spike |
+| native `fsync()` 需要真机确认 | M2 已提供 iOS native module，但耐久性语义仍需真机杀进程/断电类验证 | TestFlight 前执行 `docs/TESTING.md` M2 真机清单 |
 | logger append 低效 | 当前 `expo-file-system/legacy` 无 append，读-拼-写随日志膨胀变慢 | M3 前替换为真正 append |
 | iCloud 同步延迟不可控 | Apple 不承诺秒级 | UI 层透明展示状态，不让用户误以为卡住 |
 | `expo-speech-recognition` 稳定性 | 新 API，实机可能有坑 | M5 开工时先做 spike，不行就自写 native module |

@@ -13,8 +13,34 @@
  */
 
 import * as FileSystem from 'expo-file-system/legacy';
+import { requireNativeModule } from 'expo-modules-core';
 
 export const DOCUMENTS_DIR = FileSystem.documentDirectory;
+
+export interface FileInfo {
+  exists: boolean;
+  isDirectory?: boolean;
+  size?: number;
+}
+
+export interface FileSystemAdapter {
+  documentDirectory: string;
+  getInfo(path: string): Promise<FileInfo>;
+  ensureDir(path: string): Promise<void>;
+  writeString(path: string, contents: string): Promise<void>;
+  readString(path: string): Promise<string>;
+  copy(from: string, to: string): Promise<void>;
+  move(from: string, to: string): Promise<void>;
+  delete(path: string, opts?: { idempotent?: boolean }): Promise<void>;
+  readDir(path: string): Promise<string[]>;
+  fsync(path: string): Promise<void>;
+}
+
+interface DurableFsNativeModule {
+  fsync(path: string): Promise<void>;
+}
+
+const durableFs = requireNativeModule<DurableFsNativeModule>('OrbitDurableFS');
 
 export function requireDocumentsDir(): string {
   if (!DOCUMENTS_DIR) {
@@ -30,7 +56,39 @@ export async function ensureDir(path: string): Promise<void> {
   }
 }
 
-export function fsync(path: string): Promise<void> {
-  void path;
-  return Promise.resolve();
+export async function writeString(path: string, contents: string): Promise<void> {
+  await FileSystem.writeAsStringAsync(path, contents, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+}
+
+export async function readString(path: string): Promise<string> {
+  return FileSystem.readAsStringAsync(path, {
+    encoding: FileSystem.EncodingType.UTF8,
+  });
+}
+
+export async function fsync(path: string): Promise<void> {
+  await durableFs.fsync(path);
+}
+
+export const expoFileSystem: FileSystemAdapter = {
+  documentDirectory: requireDocumentsDir(),
+  getInfo: (path) => FileSystem.getInfoAsync(path),
+  ensureDir,
+  writeString,
+  readString,
+  copy: (from, to) => FileSystem.copyAsync({ from, to }),
+  move: (from, to) => FileSystem.moveAsync({ from, to }),
+  delete: (path, opts) => FileSystem.deleteAsync(path, { idempotent: opts?.idempotent ?? false }),
+  readDir: (path) => FileSystem.readDirectoryAsync(path),
+  fsync,
+};
+
+export function joinPath(base: string, ...parts: string[]): string {
+  const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+  const normalizedParts = parts
+    .filter((part) => part.length > 0)
+    .map((part) => part.replace(/^\/+|\/+$/g, ''));
+  return `${normalizedBase}/${normalizedParts.join('/')}`;
 }

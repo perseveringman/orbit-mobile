@@ -14,7 +14,7 @@
       ↓
    M1: 本地存储层 (done) ← 本地优先的基础
       ↓
-   M2: 原子写入 + 文本 Capture (next) ← 第一个可用形态
+   M2: 原子写入 + 文本 Capture (implemented) ← 第一个可用形态
      ↓
   M3: 同步引擎 + iCloud Bridge  ← 数据能到 Mac
      ↓
@@ -81,20 +81,20 @@
 
 **目标**：用户能在主界面输入文本，保存后在列表页看到。**没同步，纯本地**。
 
-- [ ] `src/core/capture/manifest.ts` — manifest 构造器
-- [ ] `src/core/capture/hash.ts` — sha256 计算
-- [ ] `src/core/capture/atomic-write.ts` — **五阶段原子写入协议**
-- [ ] `src/core/reconcile/reconcile-job.ts` — 启动扫描与自愈
-- [ ] `src/ui/screens/capture-screen.tsx` — 主输入界面
+- [x] `src/core/capture/manifest.ts` — manifest 构造器
+- [x] `src/core/capture/hash.ts` — sha256 计算
+- [x] `src/core/capture/atomic-write.ts` — **五阶段原子写入协议**
+- [x] `src/core/reconcile/reconcile-job.ts` — 启动扫描与自愈
+- [x] `src/ui/screens/capture-screen.tsx` — 主输入界面
   - 冷启动自动 focus 键盘
   - 保存按钮（右上）
   - 连续捕获（保存后清空继续）
-- [ ] `src/ui/screens/recent-screen.tsx` — 最近 capture 列表
-- [ ] `src/ui/screens/detail-screen.tsx` — 单条详情页（只读）
-- [ ] `src/ui/components/sync-indicator.tsx` — 状态徽章（现在永远是 pending）
-- [ ] `src/ui/hooks/use-draft.ts` — 草稿自动保存（debounce 2s）
-- [ ] 导航：expo-router 配置
-- [ ] **崩溃恢复测试**：输入中杀进程、保存中杀进程的场景
+- [x] `src/ui/screens/recent-screen.tsx` — 最近 capture 列表
+- [x] `src/ui/screens/detail-screen.tsx` — 单条详情页（只读）
+- [x] `src/ui/components/sync-indicator.tsx` — 状态徽章（现在永远是 pending）
+- [x] `src/ui/hooks/use-draft.ts` — 草稿自动保存（debounce 2s）
+- [x] 导航：expo-router 配置
+- [x] **崩溃恢复测试**：输入中杀进程、保存中杀进程的场景（单元测试覆盖 fault injection/reconcile；真机杀进程清单待人工执行）
 
 **验收**：
 - 飞行模式下可正常保存文本
