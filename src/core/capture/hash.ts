@@ -32,7 +32,7 @@ export async function sha256String(value: string): Promise<string> {
 
 export async function sha256Bytes(bytes: Uint8Array): Promise<string> {
   const copy = new Uint8Array(bytes);
-  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, copy.buffer);
+  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, copy);
   return toHex(digest);
 }
 
