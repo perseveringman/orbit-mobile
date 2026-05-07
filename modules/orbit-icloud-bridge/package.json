@@ -1,0 +1,7 @@
+{
+  "name": "orbit-icloud-bridge",
+  "version": "0.0.0",
+  "description": "Orbit Mobile iCloud Drive bridge native module",
+  "main": "src/index.ts",
+  "private": true
+}

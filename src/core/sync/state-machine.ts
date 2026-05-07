@@ -1,13 +1,24 @@
-/**
- * state-machine.ts — 同步状态机
- *
- * 状态：pending → syncing → uploaded → acked
- * 失败分支：syncing/uploaded → failed（可重试）/ conflicted（等用户介入）
- *
- * @see docs/SYNC-PROTOCOL.md §4
- * @see docs/DATA-MODEL.md §1.1 sync_state 字段
- *
- * TODO(M3): transitions 表 + canTransition / applyTransition
- */
+import type { SyncState } from '../../types/capture';
 
-export const __stub__ = true;
+const TRANSITIONS: Record<SyncState, readonly SyncState[]> = {
+  pending: ['syncing'],
+  syncing: ['uploaded', 'failed', 'pending'],
+  uploaded: ['acked', 'failed', 'conflicted'],
+  acked: [],
+  failed: ['pending', 'syncing'],
+  conflicted: ['pending'],
+};
+
+export function canTransition(from: SyncState, to: SyncState): boolean {
+  return TRANSITIONS[from].includes(to);
+}
+
+export function assertTransition(from: SyncState, to: SyncState): void {
+  if (!canTransition(from, to)) {
+    throw new Error(`sync.invalid_transition:${from}->${to}`);
+  }
+}
+
+export function isTerminalSyncState(state: SyncState): boolean {
+  return state === 'acked';
+}

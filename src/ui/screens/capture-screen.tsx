@@ -26,6 +26,7 @@ import {
 import { createTextCapture } from '../../core/capture/atomic-write';
 import { runReconcile } from '../../core/reconcile/reconcile-job';
 import { openDb } from '../../core/storage/db';
+import { runSyncTick } from '../../core/sync/worker';
 import { useDraft } from '../hooks/use-draft';
 
 export function CaptureScreen(): React.ReactElement {
@@ -67,6 +68,7 @@ export function CaptureScreen(): React.ReactElement {
       );
       await draft.clear();
       setMessage('已保存 ✓');
+      void runSyncTick({ db });
       setTimeout(() => inputRef.current?.focus(), 0);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : String(saveError));

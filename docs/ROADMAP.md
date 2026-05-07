@@ -16,7 +16,7 @@
       ↓
    M2: 原子写入 + 文本 Capture (implemented) ← 第一个可用形态
      ↓
-  M3: 同步引擎 + iCloud Bridge  ← 数据能到 Mac
+  M3: 同步引擎 + iCloud Bridge (implemented) ← 数据能到 Mac
      ↓
   M4: Mac 端 ingest 接入  ← 端到端闭环
      ↓
@@ -108,20 +108,20 @@
 
 **目标**：数据能从 Layer 2 流到 Layer 3 (iCloud Drive)。**尚不需要 Mac 配合**。
 
-- [ ] 写 Swift native module `ios/ICloudBridge/`
+- [x] 写 Swift native module `ios/ICloudBridge/`（以本地 Expo module `modules/orbit-icloud-bridge/` 实现）
   - `copyToICloud(localPath, remotePath)`
   - `getUploadStatus(remotePath)`
   - `subscribeToChanges(remotePath)`
   - `getContainerStatus()`
-- [ ] `src/native/icloud-bridge.ts` — JS wrapper
-- [ ] `src/core/sync/state-machine.ts` — 状态转换逻辑
-- [ ] `src/core/sync/backoff.ts` — 退避计算
-- [ ] `src/core/sync/worker.ts` — SyncWorker 主循环
-- [ ] `src/core/sync/icloud-transport.ts` — 调 native module 封装
-- [ ] `src/ui/components/global-status-bar.tsx` — 顶部全局状态
-- [ ] 触发源接入：NetInfo / AppState / Timer
-- [ ] Entitlements 配置：iCloud Container
-- [ ] 测试：iCloud 未登录、空间满、断网各种异常
+- [x] `src/native/icloud-bridge.ts` — JS wrapper
+- [x] `src/core/sync/state-machine.ts` — 状态转换逻辑
+- [x] `src/core/sync/backoff.ts` — 退避计算
+- [x] `src/core/sync/worker.ts` — SyncWorker 主循环
+- [x] `src/core/sync/icloud-transport.ts` — 调 native module 封装
+- [x] `src/ui/components/global-status-bar.tsx` — 顶部全局状态
+- [x] 触发源接入：AppState / Timer / 保存后立即 tick（NetInfo 暂不引入新依赖）
+- [x] Entitlements 配置：iCloud Container（Expo `ios.usesIcloudStorage` + native module；EAS/Apple capability 仍需真机配置确认）
+- [x] 测试：iCloud 未登录、断网/不可用自动失败重试（空间满需真机/CloudKit quota 手动验收）
 
 **验收**：
 - 保存后 iCloud 可见

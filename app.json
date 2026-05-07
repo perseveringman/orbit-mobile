@@ -13,6 +13,7 @@
     },
     "ios": {
       "bundleIdentifier": "com.orbit.capture",
+      "usesIcloudStorage": true,
       "supportsTablet": true
     },
     "android": {

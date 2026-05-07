@@ -1,12 +1,11 @@
-/**
- * backoff.ts — 指数退避计算
- *
- * 退避梯度（working_memory 定稿）：5s → 30s → 2m → 10m → 1h 封顶
- * 输入 attempts 返回 next_retry_at ISO 字符串。
- *
- * @see docs/SYNC-PROTOCOL.md §5
- *
- * TODO(M3): computeNextRetry(attempts, now) 实现
- */
+const MAX_DELAY_SECONDS = 3600;
+const DELAYS_SECONDS = [0, 5, 30, 120, 600, MAX_DELAY_SECONDS] as const;
 
-export const __stub__ = true;
+export function computeNextRetryAt(attempts: number, now = new Date()): string {
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    throw new Error('sync.backoff.invalid_attempts');
+  }
+  const index = Math.min(attempts - 1, DELAYS_SECONDS.length - 1);
+  const delaySeconds: number = DELAYS_SECONDS[index] ?? MAX_DELAY_SECONDS;
+  return new Date(now.getTime() + delaySeconds * 1000).toISOString();
+}

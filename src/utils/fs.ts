@@ -38,6 +38,7 @@ export interface FileSystemAdapter {
 
 interface DurableFsNativeModule {
   fsync(path: string): Promise<void>;
+  appendText(path: string, text: string): Promise<void>;
 }
 
 const durableFs = requireNativeModule<DurableFsNativeModule>('OrbitDurableFS');
@@ -70,6 +71,10 @@ export async function readString(path: string): Promise<string> {
 
 export async function fsync(path: string): Promise<void> {
   await durableFs.fsync(path);
+}
+
+export async function appendText(path: string, text: string): Promise<void> {
+  await durableFs.appendText(path, text);
 }
 
 export const expoFileSystem: FileSystemAdapter = {

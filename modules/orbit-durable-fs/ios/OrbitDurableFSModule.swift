@@ -28,6 +28,25 @@ public class OrbitDurableFSModule: Module {
       }
       #endif
     }
+
+    AsyncFunction("appendText") { (path: String, text: String) throws -> Void in
+      let url = URL(string: path)?.isFileURL == true
+        ? URL(string: path)!
+        : URL(fileURLWithPath: path)
+      if !FileManager.default.fileExists(atPath: url.path) {
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+      }
+      let handle = try FileHandle(forWritingTo: url)
+      defer {
+        try? handle.close()
+      }
+      try handle.seekToEnd()
+      guard let data = text.data(using: .utf8) else {
+        throw FsyncException("utf8 encoding failed for \(url.path)")
+      }
+      try handle.write(contentsOf: data)
+      try handle.synchronize()
+    }
   }
 }
 

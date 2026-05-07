@@ -3,40 +3,44 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-07（M2 原子写入 + 文本 Capture 实现）
+**Last updated**: 2026-05-07（M3 同步引擎 + iCloud Bridge 实现）
 **Last updater**: Copilot
-**Current milestone**: **M2 — 原子写入 + 文本 Capture implemented**
-**Next milestone**: M3 — 同步引擎 + iCloud Bridge
+**Current milestone**: **M3 — 同步引擎 + iCloud Bridge implemented**
+**Next milestone**: M4 — Mac 端 ingest 接入（开工前需先对齐独立 PR 策略）
 
 ---
 
 ## 🔴 给下一个 AI 的最重要信息
 
-**当前项目已经是可运行的 Expo SDK 54 TypeScript 项目，并完成 M2 文本 Capture 本地闭环。**
+**当前项目已经是可运行的 Expo SDK 54 TypeScript 项目，并完成 M3：文本 Capture 本地闭环 + iCloud Drive 同步引擎。**
 
-下一步请从 **M3 同步引擎 + iCloud Bridge** 开始，优先实现：
+下一步进入 **M4 Mac 端 ingest 接入** 前，必须先和用户确认 Orbit 主仓库的分支 / PR / commit 策略，然后再改 `/Users/ryanbzhou/Developer/vibe/new-orbit`。
 
-1. native iCloud Bridge / entitlements
-2. `src/core/sync/state-machine.ts`
-3. `src/core/sync/worker.ts`
-4. iCloud transport + backoff
-5. 全局同步状态 UI
+M4 优先实现：
+
+1. `src/main/capture/mobile_inbound/watcher.ts`
+2. manifest ingest + sha256 校验
+3. processed / failed 目录协议
+4. iOS ACK / failed 回写识别
+5. 端到端 demo：手机记 → Mac 自动收到
 
 开始前必读（按顺序）：
 
 1. `AGENTS.md`
 2. `docs/VISION.md`
 3. 本文件（你现在读的）
-4. `docs/SYNC-PROTOCOL.md`
-5. `docs/ORBIT-INTEGRATION.md`
-6. `docs/ARCHITECTURE.md` §6 同步引擎
+4. `docs/ORBIT-INTEGRATION.md`
+5. `docs/SYNC-PROTOCOL.md` §8 ACK 机制
+6. `docs/ARCHITECTURE.md`
 
 **重要实现备注**：
 
 - M2 已实现本地文本 Capture：manifest/hash、五阶段原子写入、reconcile、自愈、草稿和 Expo Router UI。
 - `src/utils/fs.ts` 的 `fsync()` 不再是 noop；运行时依赖本地 Expo native module `orbit-durable-fs`。
-- `src/utils/logger.ts` 目前用读-拼-写模拟 append，M3 前必须替换为真正 append。
+- M3 已实现 native `orbit-icloud-bridge`、JS wrapper、SyncWorker、退避、状态机、iCloud transport 和全局同步 banner。
+- `src/utils/logger.ts` 已改为通过 `orbit-durable-fs.appendText()` 追加写，避免读-拼-写退化。
 - M2 已通过自动化验证；飞行模式、冷启动 <1s、真机杀进程恢复仍需人工在真机上执行。
+- M3 已通过自动化验证；iCloud 登录、空间满、Finder 可见性和真机上传状态仍需人工验收。
 
 ---
 
@@ -114,8 +118,8 @@
 | M0 文档与项目骨架 | completed | - |
 | M1 本地存储层 | completed | M0 |
 | M2 原子写入 + 文本 Capture MVP | implemented; manual device validation pending | M1 |
-| M3 同步引擎 + iCloud Bridge | in progress | M2 |
-| M4 Mac 端 ingest 接入 | not started | M3 |
+| M3 同步引擎 + iCloud Bridge | implemented; manual iCloud validation pending | M2 |
+| M4 Mac 端 ingest 接入 | blocked on PR strategy confirmation | M3 |
 | M5 语音 Capture | not started | M4 |
 | M6 图片 Capture | not started | M4 |
 | M7 Share Extension | not started | M6 |
@@ -127,11 +131,13 @@
 
 - [ADR-001](./decisions/ADR-001-local-first-three-layer-storage.md) — 2026-05-06 · **accepted** · 本地优先的三层存储架构（Hot Cache / Durable Local / iCloud Transport）
 - [ADR-002](./decisions/ADR-002-native-durable-fsync.md) — 2026-05-07 · **accepted** · M2 原子写入必须通过 native durable fsync，不允许 JS noop
+- [ADR-003](./decisions/ADR-003-native-icloud-drive-bridge.md) — 2026-05-07 · **accepted** · M3 使用本地 Expo native module 接入 iCloud Drive，不引入服务端
 
 ## 已有 Plans
 
 - [2026-05-06 M1 本地存储层](./plans/2026-05-06-m1-local-storage-layer.md) — **completed**
 - [2026-05-07 M2 原子写入 + 文本 Capture MVP](./plans/2026-05-07-m2-atomic-write-and-capture-ui.md) — **implemented**
+- [2026-05-07 M3 同步引擎 + iCloud Bridge](./plans/2026-05-07-m3-sync-engine-icloud-bridge.md) — **implemented**
 
 ---
 
@@ -140,8 +146,8 @@
 | 风险 | 说明 | 缓解计划 |
 |---|---|---|
 | native `fsync()` 需要真机确认 | M2 已提供 iOS native module，但耐久性语义仍需真机杀进程/断电类验证 | TestFlight 前执行 `docs/TESTING.md` M2 真机清单 |
-| logger append 低效 | 当前 `expo-file-system/legacy` 无 append，读-拼-写随日志膨胀变慢 | M3 前替换为真正 append |
 | iCloud 同步延迟不可控 | Apple 不承诺秒级 | UI 层透明展示状态，不让用户误以为卡住 |
+| iCloud native module 需 capability 验证 | 本地 module 已实现，Apple Developer capability / EAS 配置需真机确认 | M3 手动验收时确认 iCloud Drive 可见 |
 | `expo-speech-recognition` 稳定性 | 新 API，实机可能有坑 | M5 开工时先做 spike，不行就自写 native module |
 | App Group 共享存储复杂度 | Share Extension 需要 | M7 时评估，若太复杂可先用简单 iCloud 中转 |
 | iCloud Container 权限审核 | App Store 审核可能要求说明 | 隐私说明文档 + 明示数据流向 |

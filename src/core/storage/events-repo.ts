@@ -22,7 +22,8 @@ export type SyncEventName =
   | 'failed'
   | 'retried'
   | 'manual_retry'
-  | 'reset';
+  | 'reset'
+  | 'attempts_exhausted';
 
 export async function append(
   db: SQLiteDatabaseLike,

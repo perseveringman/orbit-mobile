@@ -3,15 +3,10 @@
  *
  * 追加写 Documents/logs/sync-YYYY-MM-DD.ndjson。
  *
- * ⚠️ 已知缺陷：expo-file-system 当前无 append API，需读-拼-写
- * （O(n²)）。M3 前必须换实现（expo-file-system-next 或自写 native）。
- *
- * TODO(M3): 真正的 append 实现
+ * 追加写入走 native durable FS module，避免读-拼-写导致日志随文件增大退化。
  */
 
-import * as FileSystem from 'expo-file-system/legacy';
-
-import { ensureDir, requireDocumentsDir } from './fs';
+import { appendText, ensureDir, requireDocumentsDir } from './fs';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -48,11 +43,7 @@ async function write(level: LogLevel, event: string, data?: unknown): Promise<vo
     data,
   };
   const line = `${JSON.stringify(entry)}\n`;
-  const info = await FileSystem.getInfoAsync(path);
-  const current = info.exists ? await FileSystem.readAsStringAsync(path) : '';
-  await FileSystem.writeAsStringAsync(path, current + line, {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+  await appendText(path, line);
 }
 
 export const logger = {
