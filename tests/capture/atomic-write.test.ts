@@ -87,7 +87,7 @@ describe('atomic write', () => {
             filename: 'audio.m4a',
             localUri: '/tmp/audio.m4a',
             mime: 'audio/m4a',
-            byte_size: 10,
+            byte_size: 11,
             sha256: 'audio-hash',
             transcription: 'voice transcript',
             transcription_source: 'ios-speech',
@@ -116,4 +116,56 @@ describe('atomic write', () => {
       transcription_source: 'ios-speech',
     });
   });
+
+  it('rewrites and validates final manifest after directory move for media captures', async () => {
+    const db = await createMigratedTestDb();
+    const fs = new DropManifestOnMoveFileSystem();
+    await setValue(db, 'device_id', 'device-1');
+    await fs.writeString('/tmp/photo.jpg', 'image-bytes');
+
+    await createCapture(
+      {
+        kind: 'photo',
+        content: '',
+        attachments: [
+          {
+            type: 'image',
+            filename: 'photo.jpg',
+            localUri: '/tmp/photo.jpg',
+            mime: 'image/jpeg',
+            byte_size: 11,
+            sha256: 'image-hash',
+          },
+        ],
+      },
+      {
+        db,
+        fs,
+        id: 'mob_cap_photo',
+        txnId: 'txn_photo',
+        now: new Date('2026-05-07T00:00:02.000Z'),
+      },
+    );
+
+    const captureDir = joinPath(fs.documentDirectory, 'captures', 'mob_cap_photo');
+    await expect(fs.getInfo(joinPath(captureDir, 'manifest.json'))).resolves.toMatchObject({
+      exists: true,
+    });
+    await expect(fs.getInfo(joinPath(captureDir, '.complete'))).resolves.toMatchObject({
+      exists: true,
+    });
+    await expect(capturesRepo.get(db, 'mob_cap_photo')).resolves.toMatchObject({
+      id: 'mob_cap_photo',
+      has_image: 1,
+      attachment_count: 1,
+    });
+  });
 });
+
+class DropManifestOnMoveFileSystem extends MemoryFileSystem {
+  override async move(from: string, to: string): Promise<void> {
+    await super.move(from, to);
+    await this.delete(joinPath(to, 'manifest.json'), { idempotent: true });
+    await this.delete(joinPath(to, 'manifest.json.sha256'), { idempotent: true });
+  }
+}

@@ -181,6 +181,10 @@ export async function createCapture(
     await fs.move(stagingPath, capturePath);
     maybeFault(opts.fault, 'after_rename');
 
+    await fs.writeString(joinPath(capturePath, 'manifest.json'), manifestJson);
+    await fs.writeString(joinPath(capturePath, 'manifest.json.sha256'), manifestSha256);
+    await validateFinalCaptureDir(fs, capturePath, manifest, manifestSha256);
+
     await fs.writeString(joinPath(capturePath, '.complete'), createdAt);
     await fs.fsync(capturePath);
     await fs.fsync(dirs.captures);
@@ -251,6 +255,36 @@ async function prepareAttachments(
     });
   }
   return prepared;
+}
+
+async function validateFinalCaptureDir(
+  fs: FileSystemAdapter,
+  capturePath: string,
+  manifest: CaptureManifest,
+  expectedManifestSha256: string,
+): Promise<void> {
+  const manifestPath = joinPath(capturePath, 'manifest.json');
+  const manifestJson = await fs.readString(manifestPath);
+  const actualManifestSha256 = await sha256String(manifestJson);
+  if (actualManifestSha256 !== expectedManifestSha256) {
+    throw new Error(`capture.final_manifest_hash_mismatch:${manifest.id}`);
+  }
+
+  const storedManifestSha256 = (await fs.readString(joinPath(capturePath, 'manifest.json.sha256'))).trim();
+  if (storedManifestSha256 !== expectedManifestSha256) {
+    throw new Error(`capture.final_manifest_sha_file_mismatch:${manifest.id}`);
+  }
+
+  for (const attachment of manifest.attachments) {
+    const attachmentPath = joinPath(capturePath, attachment.filename);
+    const info = await fs.getInfo(attachmentPath);
+    if (!info.exists || info.isDirectory) {
+      throw new Error(`capture.final_attachment_missing:${attachment.filename}`);
+    }
+    if ((info.size ?? 0) !== attachment.byte_size) {
+      throw new Error(`capture.final_attachment_size_mismatch:${attachment.filename}`);
+    }
+  }
 }
 
 function validateAttachmentFilename(filename: string): void {

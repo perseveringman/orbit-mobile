@@ -34,6 +34,7 @@ export interface ReconcileResult {
   sqliteBackfilled: number;
   deadLettered: number;
   syncReset: number;
+  localConflicted: number;
 }
 
 interface WalEntry {
@@ -54,6 +55,7 @@ export async function runReconcile(opts: {
     sqliteBackfilled: 0,
     deadLettered: 0,
     syncReset: 0,
+    localConflicted: 0,
   };
   const dirs = baseDirs(fs);
   await fs.ensureDir(dirs.captures);
@@ -126,6 +128,22 @@ export async function runReconcile(opts: {
     result.syncReset += 1;
   }
 
+  for (const row of await capturesRepo.list(opts.db)) {
+    if (await isReadableCompleteCapture(fs, row.local_path)) {
+      continue;
+    }
+    if (row.sync_state === 'conflicted') {
+      continue;
+    }
+    await capturesRepo.updateSyncState(opts.db, row.id, {
+      sync_state: 'conflicted',
+      sync_last_error: 'local_capture_incomplete',
+      sync_next_retry_at: null,
+    });
+    await eventsRepo.append(opts.db, row.id, 'failed', { reason: 'local_capture_incomplete' }, isoNow());
+    result.localConflicted += 1;
+  }
+
   return result;
 }
 
@@ -149,6 +167,19 @@ async function readManifest(fs: FileSystemAdapter, capturePath: string): Promise
   const manifest = JSON.parse(await fs.readString(joinPath(capturePath, 'manifest.json'))) as CaptureManifest;
   validateManifest(manifest);
   return manifest;
+}
+
+async function isReadableCompleteCapture(fs: FileSystemAdapter, capturePath: string): Promise<boolean> {
+  try {
+    const dir = await fs.getInfo(capturePath);
+    if (!dir.exists || !dir.isDirectory) return false;
+    const complete = await fs.getInfo(joinPath(capturePath, '.complete'));
+    if (!complete.exists) return false;
+    await readManifest(fs, capturePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function backfillCapture(

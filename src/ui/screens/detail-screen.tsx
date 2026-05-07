@@ -32,9 +32,14 @@ export function DetailScreen({ id }: { id: string }): React.ReactElement {
       const row = await capturesRepo.get(db, id);
       setCapture(row);
       if (row) {
-        const manifestJson = await expoFileSystem.readString(joinPath(row.local_path, 'manifest.json'));
-        const manifest = JSON.parse(manifestJson) as { content?: string };
-        setContent(manifest.content ?? row.content_preview ?? '');
+        try {
+          const manifestJson = await expoFileSystem.readString(joinPath(row.local_path, 'manifest.json'));
+          const manifest = JSON.parse(manifestJson) as { content?: string };
+          setContent(manifest.content ?? row.content_preview ?? '');
+        } catch {
+          setContent(row.content_preview ?? '');
+          setError('本地 capture 文件不完整：manifest.json 缺失或不可读。请重新保存这条语音/图片。');
+        }
         setEvents(await eventsRepo.listByCapture(db, id, { limit: 5 }));
       }
       setLoading(false);
