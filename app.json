@@ -13,18 +13,18 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "bundleIdentifier": "com.orbit.capture",
+      "bundleIdentifier": "com.zhouyanbo.orbit.capture",
       "usesIcloudStorage": true,
       "supportsTablet": true,
       "entitlements": {
         "com.apple.developer.icloud-container-identifiers": [
-          "iCloud.com.orbit.capture"
+          "iCloud.com.zhouyanbo.orbit.capture"
         ],
         "com.apple.developer.icloud-services": [
           "CloudDocuments"
         ],
         "com.apple.developer.ubiquity-container-identifiers": [
-          "iCloud.com.orbit.capture"
+          "iCloud.com.zhouyanbo.orbit.capture"
         ]
       },
       "infoPlist": {
