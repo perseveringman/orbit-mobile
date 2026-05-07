@@ -3,6 +3,11 @@ node_modules/
 .pnp
 .pnp.js
 
+# This project uses npm (package-lock.json). Reject other lock files.
+pnpm-lock.yaml
+yarn.lock
+bun.lockb
+
 # Expo
 .expo/
 .expo-shared/
