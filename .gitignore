@@ -1,0 +1,80 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# iOS
+ios/Pods/
+ios/build/
+ios/*.xcworkspace/xcuserdata/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+*.xcuserstate
+ios/.xcode.env.local
+
+# Android (未使用，但防御)
+android/
+
+# Metro
+.metro-health-check*
+
+# Build outputs
+build/
+out/
+dist/
+
+# Logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Testing
+coverage/
+*.lcov
+.nyc_output
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Expo EAS
+eas-build-*
+
+# Temp / caches
+tmp/
+.cache/
+*.tmp
+
+# User-specific test artifacts
+/tests/fixtures/local/
