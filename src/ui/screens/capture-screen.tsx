@@ -12,7 +12,7 @@
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -42,6 +42,7 @@ import { useDraft } from '../hooks/use-draft';
 
 export function CaptureScreen(): React.ReactElement {
   const inputRef = useRef<TextInput>(null);
+  const router = useRouter();
   const draft = useDraft();
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
@@ -213,9 +214,14 @@ export function CaptureScreen(): React.ReactElement {
     <View style={styles.container}>
       <View style={styles.topBar}>
         <Text style={styles.status}>○ 本地优先</Text>
-        <Link href="/recent" style={styles.recentLink}>
-          最近
-        </Link>
+        <View style={styles.topBarLinks}>
+          <Link href="/recording" style={styles.recordingLink}>
+            录音
+          </Link>
+          <Link href="/recent" style={styles.recentLink}>
+            最近
+          </Link>
+        </View>
       </View>
 
       {draft.restored ? <Text style={styles.restored}>已恢复上次未完成草稿</Text> : null}
@@ -275,6 +281,20 @@ export function CaptureScreen(): React.ReactElement {
             setError(imageError instanceof Error ? imageError.message : String(imageError));
           }}
         />
+        <Pressable
+          accessibilityRole="button"
+          disabled={saving}
+          onPress={() => router.push('/recording/new')}
+          onLongPress={() => router.push('/recording/new')}
+          style={({ pressed }) => [
+            styles.longRecordButton,
+            saving && styles.longRecordButtonDisabled,
+            pressed && styles.longRecordButtonPressed,
+          ]}
+        >
+          <View style={styles.longRecordDot} />
+          <Text style={styles.longRecordText}>持续录音</Text>
+        </Pressable>
         {keyboardInset > 0 ? (
           <Pressable
             accessibilityRole="button"
@@ -337,6 +357,15 @@ const styles = StyleSheet.create({
     color: '#2563eb',
     fontSize: 15,
     fontWeight: '600',
+  },
+  topBarLinks: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  recordingLink: {
+    color: '#dc2626',
+    fontSize: 15,
+    fontWeight: '700',
   },
   restored: {
     color: '#0f766e',
@@ -425,5 +454,31 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '700',
+  },
+  longRecordButton: {
+    alignItems: 'center',
+    backgroundColor: '#fee2e2',
+    borderRadius: 999,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  longRecordButtonDisabled: {
+    opacity: 0.4,
+  },
+  longRecordButtonPressed: {
+    opacity: 0.78,
+  },
+  longRecordDot: {
+    backgroundColor: '#ef4444',
+    borderRadius: 5,
+    height: 9,
+    width: 9,
+  },
+  longRecordText: {
+    color: '#dc2626',
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

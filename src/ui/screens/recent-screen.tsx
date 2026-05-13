@@ -46,9 +46,14 @@ export function RecentScreen(): React.ReactElement {
           记一条
         </Link>
         <Text style={styles.title}>最近</Text>
-        <Pressable onPress={() => void capturesResult.refresh()}>
-          <Text style={styles.refresh}>刷新</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Link href="/recording" style={styles.recordingLink}>
+            录音
+          </Link>
+          <Pressable onPress={() => void capturesResult.refresh()}>
+            <Text style={styles.refresh}>刷新</Text>
+          </Pressable>
+        </View>
       </View>
       {capturesResult.error ? <Text style={styles.error}>{capturesResult.error}</Text> : null}
       <FlatList
@@ -139,6 +144,15 @@ const styles = StyleSheet.create({
   },
   refresh: {
     color: '#2563eb',
+  },
+  headerActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+  },
+  recordingLink: {
+    color: '#dc2626',
+    fontWeight: '700',
   },
   error: {
     color: '#b91c1c',
