@@ -1,15 +1,18 @@
 import { Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppBootstrap } from '../src/ui/components/app-bootstrap';
 import { GlobalStatusBar } from '../src/ui/components/global-status-bar';
 
 export default function RootLayout(): React.ReactElement {
   return (
     <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+      <AppBootstrap />
       <GlobalStatusBar />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="recent" />
+        <Stack.Screen name="settings" />
         <Stack.Screen name="detail/[id]" />
         <Stack.Screen name="recording/index" />
         <Stack.Screen name="recording/new" options={{ presentation: 'modal' }} />

@@ -60,7 +60,7 @@ export class NativeICloudTransport implements ICloudTransport {
     const status = await iCloudBridge.copyToICloud(capture.local_path, remotePath);
     return {
       remotePath,
-      uploaded: status.exists && (status.uploaded || !status.uploading),
+      uploaded: status.exists && !status.error,
     };
   }
 

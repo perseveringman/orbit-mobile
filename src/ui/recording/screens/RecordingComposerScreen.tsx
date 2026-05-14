@@ -34,7 +34,9 @@ import {
 } from '../../../core/audio/transcription';
 import { createRecordingCapture, type LivePartialInput } from '../../../core/recording/recording-service';
 import { openDb } from '../../../core/storage/db';
+import * as annotationsRepo from '../../../core/storage/recording-annotations-repo';
 import { runSyncTick } from '../../../core/sync/worker';
+import { writeWidgetSnapshot } from '../../../core/widget/snapshot';
 import type { RecordingSpeaker } from '../../../types/recording';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SpeakerAvatar } from '../components/SpeakerAvatar';
@@ -49,6 +51,12 @@ interface PartialLine {
   speaker: RecordingSpeaker;
   text: string;
   isFinal: boolean;
+}
+
+interface LiveMark {
+  id: string;
+  ts: number;
+  label: string;
 }
 
 const FALLBACK_SPEAKER: RecordingSpeaker = {
@@ -74,6 +82,7 @@ export function RecordingComposerScreen(): React.ReactElement {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [waveformSamples, setWaveformSamples] = useState<number[]>([]);
   const [partials, setPartials] = useState<PartialLine[]>([]);
+  const [marks, setMarks] = useState<LiveMark[]>([]);
   const [language, setLanguage] = useState('auto');
   const [diarization, setDiarization] = useState(true);
   const [title, setTitle] = useState('新会议 · 现在');
@@ -181,7 +190,22 @@ export function RecordingComposerScreen(): React.ReactElement {
         db,
         sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
       });
+      for (const mark of marks) {
+        await annotationsRepo.upsert(db, {
+          recording_id: detail.meta.id,
+          kind: 'bookmark',
+          target_id: mark.id,
+          payload: {
+            segmentId: mark.ts,
+            start_ms: mark.ts,
+            end_ms: mark.ts,
+            text: mark.label,
+            label: '用户书签',
+          },
+        });
+      }
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void writeWidgetSnapshot(db).catch(() => undefined);
       void runSyncTick({ db });
       router.replace(`/recording/${detail.meta.id}`);
     } catch (stopError) {
@@ -211,6 +235,18 @@ export function RecordingComposerScreen(): React.ReactElement {
     levelSubscriptionRef.current = null;
     await cancelVoiceRecording().catch(() => undefined);
     router.back();
+  }
+
+  function addMark(): void {
+    const ts = Math.max(0, Date.now() - startedMsRef.current);
+    setMarks((prev) => [
+      ...prev,
+      {
+        id: `mark-${ts}`,
+        ts,
+        label: `标记 ${prev.length + 1}`,
+      },
+    ]);
   }
 
   return (
@@ -284,10 +320,6 @@ export function RecordingComposerScreen(): React.ReactElement {
           active={!paused}
         />
         <View style={styles.controlBar}>
-          <ControlButton
-            label="-15"
-            onPress={() => setElapsedMs((v) => Math.max(0, v - 15_000))}
-          />
           <Pressable
             accessibilityRole="button"
             onPress={() => {
@@ -301,9 +333,6 @@ export function RecordingComposerScreen(): React.ReactElement {
           >
             <Text style={styles.bigBtnText}>{paused ? '继续' : '暂停'}</Text>
           </Pressable>
-          <ControlButton label="+15" onPress={() => setElapsedMs((v) => v + 15_000)} />
-          <ControlButton label="1×" onPress={() => undefined} />
-          <ControlButton label="✏︎" onPress={() => undefined} />
         </View>
         <Pressable
           accessibilityRole="button"
@@ -414,30 +443,25 @@ export function RecordingComposerScreen(): React.ReactElement {
       {tab === 'mark' ? (
         <View style={styles.placeholderCard}>
           <Text style={styles.placeholderTitle}>标记</Text>
-          <Text style={styles.placeholderBody}>
-            录音中长按某段转写可一键加书签（后续会写入标记文件）。
-          </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={addMark}
+            style={({ pressed }) => [styles.markButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.markButtonText}>添加当前时间标记</Text>
+          </Pressable>
+          {marks.length === 0 ? (
+            <Text style={styles.placeholderBody}>还没有标记。</Text>
+          ) : null}
+          {marks.map((mark) => (
+            <View key={mark.id} style={styles.markRow}>
+              <Text style={styles.markTs}>{formatTimestamp(mark.ts)}</Text>
+              <Text style={styles.markLabel}>{mark.label}</Text>
+            </View>
+          ))}
         </View>
       ) : null}
     </View>
-  );
-}
-
-function ControlButton({
-  label,
-  onPress,
-}: {
-  label: string;
-  onPress: () => void;
-}): React.ReactElement {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.smallBtn, pressed && styles.pressed]}
-    >
-      <Text style={styles.smallBtnText}>{label}</Text>
-    </Pressable>
   );
 }
 
@@ -761,5 +785,39 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 13,
     lineHeight: 20,
+  },
+  markButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.textPrimary,
+    borderRadius: radius.pill,
+    marginBottom: spacing.md,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  markButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  markRow: {
+    alignItems: 'center',
+    borderBottomColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  markTs: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '800',
+    width: 72,
+  },
+  markLabel: {
+    color: colors.textPrimary,
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

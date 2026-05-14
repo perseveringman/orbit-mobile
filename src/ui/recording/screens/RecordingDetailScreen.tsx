@@ -24,6 +24,8 @@ import {
 
 import { loadRecordingDetail } from '../../../core/recording/recording-service';
 import { prepareAudioPlayback } from '../../../core/audio/playback';
+import { openDb } from '../../../core/storage/db';
+import * as annotationsRepo from '../../../core/storage/recording-annotations-repo';
 import type {
   RecordingDetail,
   RecordingSpeaker,
@@ -42,6 +44,14 @@ interface Props {
   id: string;
 }
 
+interface RecordingBookmark {
+  segmentId: number;
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  label: string;
+}
+
 export function RecordingDetailScreen({ id }: Props): React.ReactElement {
   const router = useRouter();
   const [detail, setDetail] = useState<RecordingDetail | null>(null);
@@ -51,7 +61,9 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
   const [playing, setPlaying] = useState(false);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [position, setPosition] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [feedback, setFeedback] = useState<Record<number, 'up' | 'down' | undefined>>({});
+  const [bookmarks, setBookmarks] = useState<RecordingBookmark[]>([]);
   const soundRef = useRef<Audio.Sound | null>(null);
 
   const total = detail?.meta.duration_ms ?? 1;
@@ -61,7 +73,14 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
     setLoading(true);
     loadRecordingDetail(id)
       .then((loaded) => {
-        if (!cancelled) setDetail(loaded);
+        if (!cancelled) {
+          setDetail(loaded);
+          if (loaded) {
+            void loadAnnotations(loaded.meta.id).catch((error: unknown) => {
+              setLoadError(error instanceof Error ? error.message : String(error));
+            });
+          }
+        }
       })
       .catch((error: unknown) => {
         if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
@@ -73,6 +92,71 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
       cancelled = true;
     };
   }, [id]);
+
+  async function loadAnnotations(recordingId: string): Promise<void> {
+    const db = await openDb();
+    const rows = await annotationsRepo.listByRecording(db, recordingId);
+    const nextFeedback: Record<number, 'up' | 'down' | undefined> = {};
+    const nextBookmarks: RecordingBookmark[] = [];
+    for (const row of rows) {
+      if (row.kind === 'segment_feedback' && row.target_id !== null) {
+        const payload = annotationsRepo.parsePayload<{ value?: 'up' | 'down' }>(row);
+        const segmentId = Number(row.target_id);
+        if (payload?.value && Number.isFinite(segmentId)) {
+          nextFeedback[segmentId] = payload.value;
+        }
+      }
+      if (row.kind === 'bookmark') {
+        const payload = annotationsRepo.parsePayload<RecordingBookmark>(row);
+        if (payload) {
+          nextBookmarks.push(payload);
+        }
+      }
+    }
+    setFeedback(nextFeedback);
+    setBookmarks(nextBookmarks);
+  }
+
+  function updateFeedback(segment: TranscriptSegment, kind: 'up' | 'down'): void {
+    const next = feedback[segment.id] === kind ? undefined : kind;
+    setFeedback((prev) => ({ ...prev, [segment.id]: next }));
+    void openDb()
+      .then((db) =>
+        next
+          ? annotationsRepo.upsert(db, {
+              recording_id: id,
+              kind: 'segment_feedback',
+              target_id: String(segment.id),
+              payload: { value: next },
+            })
+          : annotationsRepo.del(db, id, 'segment_feedback', String(segment.id)),
+      )
+      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+  }
+
+  function addBookmark(segment: TranscriptSegment): void {
+    const bookmark: RecordingBookmark = {
+      segmentId: segment.id,
+      start_ms: segment.start_ms,
+      end_ms: segment.end_ms,
+      text: segment.text,
+      label: '用户书签',
+    };
+    setBookmarks((prev) => [
+      ...prev.filter((item) => item.segmentId !== segment.id),
+      bookmark,
+    ].sort((a, b) => a.start_ms - b.start_ms));
+    void openDb()
+      .then((db) =>
+        annotationsRepo.upsert(db, {
+          recording_id: id,
+          kind: 'bookmark',
+          target_id: String(segment.id),
+          payload: bookmark as unknown as Record<string, unknown>,
+        }),
+      )
+      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+  }
 
   useEffect(() => {
     return () => {
@@ -108,6 +192,7 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
           setPosition(0);
         }
         await current.playAsync();
+        await current.setRateAsync(playbackRate, true);
         setPlaying(true);
         return;
       }
@@ -119,6 +204,7 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
         (status) => handlePlaybackStatus(status, total, setPosition, setPlaying, setLoadError),
       );
       soundRef.current = created.sound;
+      await created.sound.setRateAsync(playbackRate, true);
       await created.sound.playAsync();
       setPlaying(true);
     } catch (error) {
@@ -143,6 +229,16 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  function cyclePlaybackRate(): void {
+    const rates = [1, 1.25, 1.5, 2];
+    const currentIndex = rates.indexOf(playbackRate);
+    const next = rates[(currentIndex + 1) % rates.length] ?? 1;
+    setPlaybackRate(next);
+    void soundRef.current?.setRateAsync(next, true).catch((error: unknown) => {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    });
   }
 
   if (loading) {
@@ -204,6 +300,8 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
               void togglePlay();
             }}
             loading={playbackLoading}
+            playbackRate={playbackRate}
+            onCycleRate={cyclePlaybackRate}
             onSeek={(ms) => {
               void jumpTo(ms);
             }}
@@ -214,15 +312,21 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
             detail={detail}
             position={position}
             feedback={feedback}
-            onFeedback={(seg, kind) =>
-              setFeedback((prev) => ({ ...prev, [seg.id]: prev[seg.id] === kind ? undefined : kind }))
-            }
+            onFeedback={updateFeedback}
+            onBookmark={addBookmark}
             onJump={(ms) => {
               void jumpTo(ms);
             }}
           />
         ) : null}
-        {tab === 'mark' ? <MarkTab detail={detail} /> : null}
+        {tab === 'mark' ? (
+          <MarkTab
+            bookmarks={bookmarks}
+            onJump={(ms) => {
+              void jumpTo(ms);
+            }}
+          />
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
@@ -307,6 +411,8 @@ function SourceTab({
   position,
   onTogglePlay,
   loading,
+  playbackRate,
+  onCycleRate,
   onSeek,
 }: {
   detail: RecordingDetail;
@@ -314,6 +420,8 @@ function SourceTab({
   position: number;
   onTogglePlay: () => void;
   loading: boolean;
+  playbackRate: number;
+  onCycleRate: () => void;
   onSeek: (ms: number) => void;
 }): React.ReactElement {
   const total = detail.meta.duration_ms;
@@ -344,8 +452,7 @@ function SourceTab({
             <Text style={styles.playBtnText}>{loading ? '载入' : playing ? '暂停' : '播放'}</Text>
           </Pressable>
           <PlayerBtn label="+15" onPress={() => onSeek(position + 15_000)} />
-          <PlayerBtn label="1×" onPress={() => undefined} />
-          <PlayerBtn label="✏︎" onPress={() => undefined} />
+          <PlayerBtn label={`${playbackRate}×`} onPress={onCycleRate} />
         </View>
       </View>
 
@@ -383,12 +490,14 @@ function TranscriptTab({
   position,
   feedback,
   onFeedback,
+  onBookmark,
   onJump,
 }: {
   detail: RecordingDetail;
   position: number;
   feedback: Record<number, 'up' | 'down' | undefined>;
   onFeedback: (seg: TranscriptSegment, kind: 'up' | 'down') => void;
+  onBookmark: (seg: TranscriptSegment) => void;
   onJump: (ms: number) => void;
 }): React.ReactElement {
   const speakerById = useMemo(() => {
@@ -418,6 +527,7 @@ function TranscriptTab({
           <Pressable
             key={segment.id}
             onPress={() => onJump(segment.start_ms)}
+            onLongPress={() => onBookmark(segment)}
             style={({ pressed }) => [
               styles.segmentCard,
               active && styles.segmentCardActive,
@@ -455,24 +565,32 @@ function TranscriptTab({
   );
 }
 
-function MarkTab({ detail }: { detail: RecordingDetail }): React.ReactElement {
-  const samples = detail.transcript.segments.slice(0, 2);
+function MarkTab({
+  bookmarks,
+  onJump,
+}: {
+  bookmarks: RecordingBookmark[];
+  onJump: (ms: number) => void;
+}): React.ReactElement {
   return (
     <View>
       <Text style={styles.sectionLabel}>书签</Text>
-      {samples.length === 0 ? (
+      {bookmarks.length === 0 ? (
         <Text style={styles.placeholder}>还没有书签，听到关键句长按转写即可加。</Text>
       ) : null}
-      {samples.map((seg, idx) => (
-        <View key={seg.id} style={styles.markCard}>
+      {bookmarks.map((bookmark) => (
+        <Pressable
+          key={bookmark.segmentId}
+          accessibilityRole="button"
+          onPress={() => onJump(bookmark.start_ms)}
+          style={({ pressed }) => [styles.markCard, pressed && styles.pressed]}
+        >
           <View style={styles.markHead}>
-            <Text style={styles.markLabel}>
-              {idx === 0 ? '🌟 用户书签' : '✨ AI 标记'}
-            </Text>
-            <Text style={styles.segmentTs}>{formatTimestamp(seg.start_ms)}</Text>
+            <Text style={styles.markLabel}>{bookmark.label}</Text>
+            <Text style={styles.segmentTs}>{formatTimestamp(bookmark.start_ms)}</Text>
           </View>
-          <Text style={styles.markBody}>{seg.text}</Text>
-        </View>
+          <Text style={styles.markBody}>{bookmark.text}</Text>
+        </Pressable>
       ))}
     </View>
   );

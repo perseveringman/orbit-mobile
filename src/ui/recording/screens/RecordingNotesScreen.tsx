@@ -21,6 +21,8 @@ import {
 
 import { generateLocalDerivative } from '../../../core/recording/templates';
 import { loadRecordingDetail } from '../../../core/recording/recording-service';
+import { openDb } from '../../../core/storage/db';
+import * as annotationsRepo from '../../../core/storage/recording-annotations-repo';
 import type {
   DerivativePayload,
   RecordingDetail,
@@ -51,12 +53,26 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
     let cancelled = false;
     setLoading(true);
     loadRecordingDetail(id)
-      .then((loaded) => {
+      .then(async (loaded) => {
         if (cancelled) return;
         setDetail(loaded);
-        setCustoms(loaded?.derivatives.custom ?? []);
+        const rows = loaded
+          ? await annotationsRepo.listByRecording(await openDb(), loaded.meta.id)
+          : [];
+        if (cancelled) return;
+        const customAnnotations = rows
+          .filter((row) => row.kind === 'custom_derivative')
+          .map((row) => annotationsRepo.parsePayload<DerivativePayload>(row))
+          .filter((payload): payload is DerivativePayload => payload !== null);
+        setCustoms([...(loaded?.derivatives.custom ?? []), ...customAnnotations]);
         const items = loaded?.derivatives.todos?.items ?? [];
-        setTodoState(Object.fromEntries(items.map((item) => [item.id, item.done ?? false])));
+        const nextTodoState = Object.fromEntries(items.map((item) => [item.id, item.done ?? false]));
+        for (const row of rows.filter((item) => item.kind === 'todo_state')) {
+          if (row.target_id === null) continue;
+          const payload = annotationsRepo.parsePayload<{ done?: boolean }>(row);
+          nextTodoState[row.target_id] = payload?.done === true;
+        }
+        setTodoState(nextTodoState);
       })
       .catch((error: unknown) => {
         if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
@@ -114,6 +130,32 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
     setCustoms((prev) => [...prev.filter((c) => c.template_id !== template.id), generated]);
     setTab(`custom:${template.id}`);
     setSheetOpen(false);
+    void openDb()
+      .then((db) =>
+        annotationsRepo.upsert(db, {
+          recording_id: detail.meta.id,
+          kind: 'custom_derivative',
+          target_id: template.id,
+          payload: generated as unknown as Record<string, unknown>,
+        }),
+      )
+      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+  }
+
+  function toggleTodo(itemId: string): void {
+    if (!detail) return;
+    const next = !todoState[itemId];
+    setTodoState((prev) => ({ ...prev, [itemId]: next }));
+    void openDb()
+      .then((db) =>
+        annotationsRepo.upsert(db, {
+          recording_id: detail.meta.id,
+          kind: 'todo_state',
+          target_id: itemId,
+          payload: { done: next },
+        }),
+      )
+      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
   }
 
   return (
@@ -175,9 +217,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
           <TodoView
             payload={detail.derivatives.todos}
             state={todoState}
-            onToggle={(itemId) =>
-              setTodoState((prev) => ({ ...prev, [itemId]: !prev[itemId] }))
-            }
+            onToggle={toggleTodo}
           />
         ) : null}
         {tab.startsWith('custom:') ? (

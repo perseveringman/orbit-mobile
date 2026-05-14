@@ -29,10 +29,10 @@ import type { KeyboardEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { createCapture, createTextCapture } from '../../core/capture/atomic-write';
-import { runReconcile } from '../../core/reconcile/reconcile-job';
-import { importShareInbox } from '../../core/share/share-inbox';
+import { loadAppSettings } from '../../core/settings/app-settings';
 import { openDb } from '../../core/storage/db';
 import { runSyncTick } from '../../core/sync/worker';
+import { writeWidgetSnapshot } from '../../core/widget/snapshot';
 import type { VoiceRecordingResult } from '../../core/audio/recorder';
 import type { LiveTranscriptionState } from '../../core/audio/transcription';
 import type { PickedImage } from '../../core/image/picker';
@@ -55,15 +55,6 @@ export function CaptureScreen(): React.ReactElement {
 
   useEffect(() => {
     const focusHandle = setTimeout(() => inputRef.current?.focus(), 50);
-    openDb()
-      .then(async (db) => {
-        const imported = await importShareInbox({ db });
-        if (imported > 0) setMessage(`已导入 ${imported} 条分享`);
-        await runReconcile({ db });
-      })
-      .catch((reconcileError: unknown) => {
-        setError(reconcileError instanceof Error ? reconcileError.message : String(reconcileError));
-      });
     Clipboard.hasStringAsync()
       .then((hasString) => (hasString ? Clipboard.getStringAsync() : Promise.resolve('')))
       .then((value) => {
@@ -116,6 +107,7 @@ export function CaptureScreen(): React.ReactElement {
       await draft.clear();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setMessage('已保存 ✓');
+      void writeWidgetSnapshot(db).catch(() => undefined);
       void runSyncTick({ db });
       setTimeout(() => inputRef.current?.focus(), 0);
     } catch (saveError) {
@@ -162,6 +154,7 @@ export function CaptureScreen(): React.ReactElement {
       setLiveTranscription(null);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setMessage('语音已保存 ✓');
+      void writeWidgetSnapshot(db).catch(() => undefined);
       void runSyncTick({ db });
       setTimeout(() => inputRef.current?.focus(), 0);
     } catch (voiceError) {
@@ -177,21 +170,39 @@ export function CaptureScreen(): React.ReactElement {
     setError(null);
     try {
       const db = await openDb();
+      const settings = await loadAppSettings(db);
       const content = draft.content.trim();
       await createCapture(
         {
           kind: content.length > 0 ? 'mixed' : 'photo',
           content,
           sessionId: draft.sessionId,
-          attachments: images.map((image, index) => ({
-            type: 'image',
-            filename: image.filename || `photo-${index + 1}.jpg`,
-            localUri: image.uri,
-            mime: image.mime,
-            width: image.width,
-            height: image.height,
-            captured_at: new Date().toISOString(),
-          })),
+          attachments: images.flatMap((image, index) => {
+            const capturedAt = new Date().toISOString();
+            const compressed = {
+              type: 'image' as const,
+              filename: image.filename || `photo-${index + 1}.jpg`,
+              localUri: image.uri,
+              mime: image.mime,
+              byte_size: image.byteSize,
+              width: image.width,
+              height: image.height,
+              captured_at: capturedAt,
+            };
+            if (!settings.keepImageOriginal || !image.compressed || image.originalUri === image.uri) {
+              return [compressed];
+            }
+            return [
+              compressed,
+              {
+                type: 'file' as const,
+                filename: originalImageFilename(image.originalFilename, index),
+                localUri: image.originalUri,
+                mime: image.originalMime,
+                captured_at: capturedAt,
+              },
+            ];
+          }),
         },
         {
           db,
@@ -201,6 +212,7 @@ export function CaptureScreen(): React.ReactElement {
       await draft.clear();
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setMessage('图片已保存 ✓');
+      void writeWidgetSnapshot(db).catch(() => undefined);
       void runSyncTick({ db });
       setTimeout(() => inputRef.current?.focus(), 0);
     } catch (imageError) {
@@ -220,6 +232,9 @@ export function CaptureScreen(): React.ReactElement {
           </Link>
           <Link href="/recent" style={styles.recentLink}>
             最近
+          </Link>
+          <Link href="/settings" style={styles.recentLink}>
+            设置
           </Link>
         </View>
       </View>
@@ -334,6 +349,12 @@ function isUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function originalImageFilename(filename: string, index: number): string {
+  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, '-');
+  const extension = safe.includes('.') ? safe.split('.').filter(Boolean).at(-1) : 'jpg';
+  return `original-photo-${index + 1}.${extension ?? 'jpg'}`;
 }
 
 const styles = StyleSheet.create({

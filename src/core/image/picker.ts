@@ -8,6 +8,11 @@ export interface PickedImage {
   mime: string;
   width?: number;
   height?: number;
+  byteSize?: number;
+  compressed: boolean;
+  originalUri: string;
+  originalFilename: string;
+  originalMime: string;
 }
 
 export async function pickImages(): Promise<PickedImage[]> {
@@ -21,7 +26,7 @@ export async function pickImages(): Promise<PickedImage[]> {
     quality: 0.82,
   });
   if (result.canceled) return [];
-  return result.assets.map((asset, index) => toPickedImage(asset, index));
+  return Promise.all(result.assets.map((asset, index) => toPickedImage(asset, index)));
 }
 
 export async function takePhoto(): Promise<PickedImage | null> {
@@ -39,20 +44,25 @@ export async function takePhoto(): Promise<PickedImage | null> {
   return toPickedImage(asset, 0);
 }
 
-function toPickedImage(asset: ImagePicker.ImagePickerAsset, index: number): PickedImage {
+async function toPickedImage(asset: ImagePicker.ImagePickerAsset, index: number): Promise<PickedImage> {
   const extension = extensionFromUri(asset.uri) ?? 'jpg';
-  const compressed = compressImage(asset.uri, {
+  const compressed = await compressImage(asset.uri, {
     width: asset.width,
     height: asset.height,
-    filename: asset.fileName,
+    filename: `photo-${index + 1}.jpg`,
     mime: asset.mimeType,
   });
   return {
     uri: compressed.uri,
-    filename: sanitizeFilename(asset.fileName) ?? compressed.filename ?? `photo-${index + 1}.${extension}`,
+    filename: compressed.filename,
     mime: compressed.mime,
     width: compressed.width,
     height: compressed.height,
+    byteSize: compressed.byteSize,
+    compressed: compressed.compressed,
+    originalUri: asset.uri,
+    originalFilename: sanitizeFilename(asset.fileName) ?? `original-photo-${index + 1}.${extension}`,
+    originalMime: asset.mimeType ?? mimeFromExtension(extension),
   };
 }
 
@@ -64,4 +74,11 @@ function sanitizeFilename(filename: string | null | undefined): string | null {
 function extensionFromUri(uri: string): string | null {
   const match = /\.([a-zA-Z0-9]+)(?:\?|#|$)/.exec(uri);
   return match?.[1]?.toLowerCase() ?? null;
+}
+
+function mimeFromExtension(extension: string): string {
+  if (extension === 'png') return 'image/png';
+  if (extension === 'heic' || extension === 'heif') return 'image/heic';
+  if (extension === 'webp') return 'image/webp';
+  return 'image/jpeg';
 }

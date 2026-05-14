@@ -17,6 +17,7 @@ import type { AVPlaybackStatusSuccess } from 'expo-av';
 import * as capturesRepo from '../../core/storage/captures-repo';
 import * as eventsRepo from '../../core/storage/events-repo';
 import { openDb } from '../../core/storage/db';
+import { runSyncTick } from '../../core/sync/worker';
 import type { CaptureRow, SyncEventRow } from '../../types/capture';
 import { SyncIndicator } from '../components/sync-indicator';
 import {
@@ -53,6 +54,35 @@ export function DetailScreen({ id }: { id: string }): React.ReactElement {
       setLoading(false);
     });
   }, [id]);
+
+  async function reload(): Promise<void> {
+    const db = await openDb();
+    const row = await capturesRepo.get(db, id);
+    setCapture(row);
+    if (row) {
+      setDisplay(await loadCaptureDisplay(row));
+      setEvents(await eventsRepo.listByCapture(db, id, { limit: 5 }));
+    }
+  }
+
+  async function retrySync(): Promise<void> {
+    if (!capture) return;
+    setError(null);
+    try {
+      const db = await openDb();
+      await capturesRepo.updateSyncState(db, capture.id, {
+        sync_state: 'pending',
+        sync_attempts: 0,
+        sync_last_error: null,
+        sync_next_retry_at: null,
+      });
+      await eventsRepo.append(db, capture.id, 'manual_retry', { from: capture.sync_state });
+      await runSyncTick({ db, batchSize: 1 });
+      await reload();
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : String(retryError));
+    }
+  }
 
   if (loading) {
     return (
@@ -106,6 +136,17 @@ export function DetailScreen({ id }: { id: string }): React.ReactElement {
           <Text style={styles.meta}>{display?.capturedAtLabel ?? capture.captured_at_local}</Text>
           <View style={styles.syncSummary}>
             <Text style={styles.syncSummaryText}>同步状态对用户可见，但默认不展开技术日志。</Text>
+            {capture.sync_state === 'failed' || capture.sync_state === 'conflicted' ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  void retrySync();
+                }}
+                style={styles.retryButton}
+              >
+                <Text style={styles.retryButtonText}>重新同步</Text>
+              </Pressable>
+            ) : null}
             <Pressable
               accessibilityRole="button"
               onPress={() => setShowEvents((value) => !value)}
@@ -308,6 +349,19 @@ const styles = StyleSheet.create({
     color: '#2563eb',
     fontSize: 13,
     fontWeight: '700',
+  },
+  retryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#111827',
+    borderRadius: 999,
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
   },
   sectionTitle: {
     fontSize: 16,

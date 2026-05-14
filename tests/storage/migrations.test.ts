@@ -12,13 +12,20 @@ describe('storage migrations', () => {
       `SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`,
     );
     expect(schema.map((row) => row.name)).toEqual(
-      expect.arrayContaining(['captures', 'device_info', 'drafts', 'recordings', 'sync_events']),
+      expect.arrayContaining([
+        'captures',
+        'device_info',
+        'drafts',
+        'recording_annotations',
+        'recordings',
+        'sync_events',
+      ]),
     );
 
     const version = await db.getFirstAsync<{ value: string }>(
       `SELECT value FROM device_info WHERE key = 'schema_version'`,
     );
-    expect(version?.value).toBe('2');
+    expect(version?.value).toBe('3');
   });
 
   it('is idempotent for an already migrated database', async () => {
@@ -30,7 +37,7 @@ describe('storage migrations', () => {
       `SELECT value FROM device_info WHERE key = 'schema_version'`,
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.value).toBe('2');
+    expect(rows[0]?.value).toBe('3');
   });
 
   it('rolls back a failed migration without leaving dirty tables or schema_version', async () => {

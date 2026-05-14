@@ -9,7 +9,7 @@
  *
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const CREATE_CAPTURES = `
 CREATE TABLE IF NOT EXISTS captures (
@@ -107,4 +107,22 @@ export const CREATE_RECORDINGS_INDEXES: readonly string[] = [
      ON recordings(final_state);`,
   `CREATE INDEX IF NOT EXISTS idx_recordings_created
      ON recordings(created_at DESC);`,
+];
+
+export const CREATE_RECORDING_ANNOTATIONS = `
+CREATE TABLE IF NOT EXISTS recording_annotations (
+  id                   TEXT PRIMARY KEY,
+  recording_id         TEXT NOT NULL,
+  kind                 TEXT NOT NULL,
+  target_id            TEXT,
+  payload_json         TEXT NOT NULL,
+  created_at           TEXT NOT NULL,
+  updated_at           TEXT NOT NULL,
+  FOREIGN KEY (recording_id) REFERENCES recordings(id) ON DELETE CASCADE,
+  UNIQUE(recording_id, kind, target_id)
+);`;
+
+export const CREATE_RECORDING_ANNOTATIONS_INDEXES: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_recording_annotations_recording
+     ON recording_annotations(recording_id, kind);`,
 ];

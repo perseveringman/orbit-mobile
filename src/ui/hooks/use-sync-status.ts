@@ -24,7 +24,7 @@ const EMPTY_COUNTS: SyncStatusCounts = {
   conflicted: 0,
 };
 
-export function useSyncStatus(pollMs = 5000): SyncStatusSnapshot {
+export function useSyncStatus(pollMs = 5000, runWorkerOnPoll = false): SyncStatusSnapshot {
   const [counts, setCounts] = useState<SyncStatusCounts>(EMPTY_COUNTS);
   const [iCloud, setICloud] = useState<iCloudBridge.ICloudContainerStatus>({
     available: false,
@@ -54,13 +54,13 @@ export function useSyncStatus(pollMs = 5000): SyncStatusSnapshot {
   }, []);
 
   useEffect(() => {
-    void refresh(true);
+    void refresh(runWorkerOnPoll);
     const interval = setInterval(() => {
-      void refresh(true);
+      void refresh(runWorkerOnPoll);
     }, pollMs);
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        void refresh(true);
+        void refresh(runWorkerOnPoll);
       }
     });
 
@@ -68,7 +68,7 @@ export function useSyncStatus(pollMs = 5000): SyncStatusSnapshot {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [pollMs, refresh]);
+  }, [pollMs, refresh, runWorkerOnPoll]);
 
   return { counts, iCloud, error, loading, refresh };
 }

@@ -1,12 +1,4 @@
-/**
- * compressor.ts — 图片压缩
- *
- * 默认长边 2048px、质量 0.8（working_memory 定稿）。
- * expo-image-manipulator 实现。
- *
- * @see docs/ARCHITECTURE.md §8
- *
- */
+import ImageTools from 'orbit-image-tools';
 
 export interface CompressImageOptions {
   maxLongEdge?: number;
@@ -24,20 +16,40 @@ export interface CompressedImage {
   height: number;
   mime: string;
   filename: string;
+  byteSize?: number;
+  compressed: boolean;
 }
 
-export function compressImage(
+export async function compressImage(
   uri: string,
   opts: CompressImageOptions = {},
-): CompressedImage {
-  void opts.maxLongEdge;
-  void opts.quality;
+): Promise<CompressedImage> {
+  const filename = sanitizeFilename(opts.filename) ?? filenameFromUri(uri, opts.format ?? 'jpeg');
+  try {
+    const result = await ImageTools.compressImage(uri, {
+      maxLongEdge: opts.maxLongEdge ?? 2048,
+      quality: opts.quality ?? 0.82,
+      filename: forceJpegFilename(filename),
+    });
+    return {
+      uri: result.uri,
+      width: result.width,
+      height: result.height,
+      mime: result.mime,
+      filename: forceJpegFilename(filename),
+      byteSize: result.byteSize,
+      compressed: result.uri !== uri,
+    };
+  } catch {
+    // Preserve the original image if the native compressor is unavailable.
+  }
   return {
     uri,
     width: opts.width ?? 0,
     height: opts.height ?? 0,
     mime: opts.mime ?? mimeForFormat(opts.format ?? 'jpeg'),
-    filename: sanitizeFilename(opts.filename) ?? filenameFromUri(uri, opts.format ?? 'jpeg'),
+    filename,
+    compressed: false,
   };
 }
 
@@ -56,4 +68,9 @@ function filenameFromUri(uri: string, format: 'jpeg' | 'png' | 'webp'): string {
   const filename = uri.split('/').filter(Boolean).at(-1);
   if (filename && filename.includes('.')) return filename.replace(/[^a-zA-Z0-9._-]/g, '-');
   return `photo.${format === 'png' ? 'png' : format === 'webp' ? 'webp' : 'jpg'}`;
+}
+
+function forceJpegFilename(filename: string): string {
+  const withoutExtension = filename.replace(/\.[a-zA-Z0-9]+$/, '');
+  return `${withoutExtension || 'photo'}.jpg`;
 }

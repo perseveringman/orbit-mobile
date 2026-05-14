@@ -3,19 +3,51 @@ import WidgetKit
 
 private struct CaptureEntry: TimelineEntry {
   let date: Date
+  let items: [WidgetCaptureItem]
+}
+
+private struct WidgetSnapshot: Decodable {
+  let schema_version: Int
+  let updated_at: String
+  let items: [WidgetCaptureItem]
+}
+
+private struct WidgetCaptureItem: Decodable, Identifiable {
+  let id: String
+  let kind: String
+  let title: String
+  let captured_at: String
 }
 
 private struct Provider: TimelineProvider {
   func placeholder(in context: Context) -> CaptureEntry {
-    CaptureEntry(date: Date())
+    CaptureEntry(date: Date(), items: [])
   }
 
   func getSnapshot(in context: Context, completion: @escaping (CaptureEntry) -> Void) {
-    completion(CaptureEntry(date: Date()))
+    completion(CaptureEntry(date: Date(), items: loadSnapshotItems()))
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<CaptureEntry>) -> Void) {
-    completion(Timeline(entries: [CaptureEntry(date: Date())], policy: .after(Date().addingTimeInterval(3600))))
+    completion(Timeline(
+      entries: [CaptureEntry(date: Date(), items: loadSnapshotItems())],
+      policy: .after(Date().addingTimeInterval(1800))
+    ))
+  }
+
+  private func loadSnapshotItems() -> [WidgetCaptureItem] {
+    guard let container = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: "group.com.zhouyanbo.orbit.capture"
+    ) else {
+      return []
+    }
+    let url = container.appendingPathComponent("widget/recent.json")
+    guard let data = try? Data(contentsOf: url),
+          let snapshot = try? JSONDecoder().decode(WidgetSnapshot.self, from: data),
+          snapshot.schema_version == 1 else {
+      return []
+    }
+    return Array(snapshot.items.prefix(3))
   }
 }
 
@@ -29,8 +61,17 @@ private struct OrbitCaptureWidgetView: View {
       case .systemMedium:
         VStack(alignment: .leading, spacing: 8) {
           Text("Orbit Capture").font(.headline)
-          Text("Tap to capture a thought, voice note, or photo.").font(.caption)
-          Text("记一条").font(.title3.bold())
+          if entry.items.isEmpty {
+            Text("Tap to capture a thought, voice note, or photo.").font(.caption)
+          } else {
+            ForEach(entry.items) { item in
+              HStack(spacing: 6) {
+                Text(icon(for: item.kind)).font(.caption.bold())
+                Text(item.title).font(.caption).lineLimit(1)
+              }
+            }
+          }
+          Text("记一条").font(.caption.bold())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
       case .accessoryCircular:
@@ -45,6 +86,17 @@ private struct OrbitCaptureWidgetView: View {
       }
     }
     .orbitWidgetBackground()
+  }
+
+  private func icon(for kind: String) -> String {
+    switch kind {
+    case "voice": return "●"
+    case "photo": return "▧"
+    case "share": return "↗"
+    case "recording": return "◉"
+    case "mixed": return "◎"
+    default: return "✎"
+    }
   }
 }
 

@@ -3,18 +3,18 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-14（M9 recording local implementation）
-**Last updater**: Copilot
-**Current milestone**: **M0-M9 — code complete; manual device validation pending**
-**Next milestone**: 真机/iCloud/TestFlight 验收
+**Last updated**: 2026-05-14（M0-M9 implementation sweep）
+**Last updater**: Codex
+**Current milestone**: **M0-M9 — local code complete; provider and device validation pending**
+**Next milestone**: 真机/iCloud/TestFlight 验收 + final transcription provider 选择
 
 ---
 
 ## 🔴 给下一个 AI 的最重要信息
 
-**当前项目已经是可运行的 Expo SDK 54 TypeScript + iOS Development Build 项目，并完成 M2-M9 主链路：本地原子 Capture、iCloud Drive 同步、Mac inbound、语音实时转写/原始录音、图片附件、Share Extension、Widget 入口，以及长录音 UI 的真实本地落地。**
+**当前项目已经是可运行的 Expo SDK 54 TypeScript + iOS Development Build 项目，并完成 M2-M9 主链路：本地原子 Capture、iCloud Drive 同步、Mac inbound、语音实时转写/原始录音、图片附件、Share Extension、Widget 入口、全局启动自愈/同步，以及长录音 UI 的真实本地落地。**
 
-M7/M8 已接入原生入口：Share Extension 只写 App Group `share-inbox/` 交换目录，主 app 启动后通过 `createCapture()` 导入，继续走同一套五阶段本地原子写入协议；WidgetKit 只 deep link 到主 Capture。Extension/Widget 都不直接写 iCloud。
+M7/M8 已接入原生入口：Share Extension 只写 App Group `share-inbox/` 交换目录，主 app 启动后通过 `createCapture()` 导入，继续走同一套五阶段本地原子写入协议；WidgetKit 只 deep link 到主 Capture，并从 App Group `widget/recent.json` 读取最近 capture 快照。Extension/Widget 都不直接写 iCloud。
 
 TestFlight 前优先验收：
 
@@ -41,6 +41,7 @@ TestFlight 前优先验收：
 - 已生成 `ios/` 工程，并为 `orbit-durable-fs` / `orbit-icloud-bridge` 补齐 podspec；`expo-modules-autolinking resolve --platform ios` 能识别两个本地模块。
 - 当前本机已升级到 Xcode 26.4.1；`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 通过。
 - M3 已实现 native `orbit-icloud-bridge`、JS wrapper、SyncWorker、退避、状态机、iCloud transport 和全局同步 banner。
+- 2026-05-14 已新增 app 级 `AppBootstrap`：主 app 启动、回前台和 60s 心跳都会执行 Share inbox 导入、reconcile、自愈后 Widget snapshot 写入、以及一次 SyncWorker tick；`useSyncStatus()` 默认只轮询状态，不再每 5s 隐式跑 worker。
 - `src/utils/logger.ts` 已改为通过 `orbit-durable-fs.appendText()` 追加写，避免读-拼-写退化。
 - M4 已合入 `/Users/ryanbzhou/Developer/new-orbit` 的 `main`，merge commit `feat(mobile): 合并手机入站接入`；focused test `tests/mobile_inbound.test.ts` 通过。
 - M5/M6 已把附件纳入同一五阶段原子协议：语音 `.m4a` 和图片都会进入 `captures/<id>/` manifest attachments。
@@ -48,14 +49,17 @@ TestFlight 前优先验收：
 - Capture 主输入页的底部工具条现在会跟随键盘上移，并在键盘打开时显示“收起”按钮，避免被键盘遮挡且无法 dismiss。
 - 最近列表和详情页已改为用户友好的 Capture 展示：按文字/图片/语音/混合类型渲染卡片，图片显示缩略图/大图，语音可播放，同步技术记录默认折叠。
 - 当前语音实时转写通过本地 native module `orbit-speech-recognition` 接 Apple Speech framework；转写失败不影响原始 `.m4a` 保存。
-- M6 图片入口使用 ActionSheet，相册/拍照统一为 `MediaPicker`；图片经 `expo-image-picker` quality 0.82 压缩后进入本地原子协议。
+- M6 图片入口使用 ActionSheet，相册/拍照统一为 `MediaPicker`；2026-05-14 起图片经本地 native module `orbit-image-tools` 使用 iOS `UIImage` 压缩/缩放，且默认保留原图附件（设置页可关闭），不会上传到外部服务。
 - `sync_events.gc({ keepPerCapture })` 已实现窗口函数裁剪；全局同步状态改为 `useSyncStatus()` 聚合并 5s 刷新。
-- M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`，主 app 启动后导入到本地原子 Capture。
-- M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget，deep link 到 `orbit-mobile://`。
-- M9 长录音 UI 已从静态 mock 改为真实 Layer 2 数据：`recordings` 表 + `kind='recording'` capture + `audio.m4a` / `waveform.json` / `partial-transcript.ndjson` / `final-transcript.json` / 本地派生物附件。Recording Composer 以原始录音为最高优先级；iOS 录音与 Apple Speech 实时转写共用同一条 native 麦克风管线，实时波形来自同一麦克风 buffer 的 RMS/peak 采样，避免 `expo-av` 与 Speech 并发抢占音频会话；未配置云端模型时使用透明的 `local-live-transcript` / `local-heuristic` 派生，不引入服务端。
+- 详情页现在对 `failed` / `conflicted` capture 提供手动“重新同步”，会把状态重置为 `pending` 并立即跑一次 SyncWorker；设置页提供 iCloud 状态、sync state 计数、手动同步、手动自愈和“保留原图”开关。
+- M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`；2026-05-14 起主 app 导入是逐条容错、幂等的，失败条目会带 `.failed.json` 移入 `share-inbox-failed/`，URL 分享会尝试通过 `LinkPresentation` 补标题。
+- M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget，deep link 到 `orbit-mobile://`；medium widget 现在会显示 App Group 快照中的最近 capture。
+- M9 长录音 UI 已从静态 mock 改为真实 Layer 2 数据：`recordings` 表 + `recording_annotations` 表 + `kind='recording'` capture + `audio.m4a` / `waveform.json` / `partial-transcript.ndjson` / `final-transcript.json` / 本地派生物附件。Recording Composer 以原始录音为最高优先级；iOS 录音与 Apple Speech 实时转写共用同一条 native 麦克风管线，实时波形来自同一麦克风 buffer 的 RMS/peak 采样，避免 `expo-av` 与 Speech 并发抢占音频会话；未配置云端模型时使用透明的 `local-live-transcript` / `local-heuristic` 派生，不引入服务端。
+- 录音详情/笔记的用户操作已真实持久化：片段反馈、片段书签、录音中即时标记、todo 勾选状态和自定义派生笔记都会写入 `recording_annotations`，不再依赖 UI 内存状态。
 - M9 仍待真机人工验收：后台持续录音、锁屏/来电中断、长音频耗电、以及后续云端 final transcription/diarization provider 配置。
 - M2 已通过自动化验证；飞行模式、冷启动 <1s、真机杀进程恢复仍需人工在真机上执行。
 - M3 已通过自动化验证；iCloud 登录、空间满、Finder 可见性和真机上传状态仍需人工验收。
+- 2026-05-14 自动化验证：`npm run typecheck`、`npm run lint`、`npm test`、`pod install`、`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 均通过。
 - 本机 `周延博的 iPhone` 已完成 `iphoneos` Debug build、签名、安装和启动；需要用户在设备上继续执行飞行模式/杀进程/iCloud Finder/Share/Widget 交互验收。
 - M4 Mac 全量测试有 1 个既有非相关失败：`tests/conversation_store.test.ts` 排序期望；M4 focused test 通过。
 
@@ -138,10 +142,10 @@ TestFlight 前优先验收：
 | M3 同步引擎 + iCloud Bridge | implemented; manual iCloud validation pending | M2 |
 | M4 Mac 端 ingest 接入 | merged to Mac main; focused test passed; real iCloud E2E pending | M3 |
 | M5 语音 Capture | implemented; Apple Speech true-device validation pending | M4 |
-| M6 图片 Capture | implemented; media display done; true-device validation pending | M4 |
-| M7 Share Extension | implemented; true-device share sheet validation pending | M6 |
-| M8 便捷入口 | implemented; lock-screen/widget timing validation pending | M7 |
-| M9 长录音 + 录音笔记 UI | local implementation complete; provider/manual validation pending | M8 |
+| M6 图片 Capture | local native compression + original preservation implemented; true-device validation pending | M4 |
+| M7 Share Extension | implemented with idempotent/failure-tolerant import; true-device share sheet validation pending | M6 |
+| M8 便捷入口 | widget snapshot implemented; lock-screen/widget timing validation pending | M7 |
+| M9 长录音 + 录音笔记 UI | local implementation complete with persisted annotations; provider/manual validation pending | M8 |
 
 ---
 
@@ -171,6 +175,7 @@ TestFlight 前优先验收：
 | Apple Speech native module 真机行为 | 已自写 `orbit-speech-recognition`，但与 `expo-av` 同时占用麦克风需真机确认 | M5 真机验收时确认实时转写和录音可并行；失败时原始录音仍保存 |
 | App Group 共享存储复杂度 | Share Extension 已采用 App Group inbox + 主 app 导入，避免 extension 直接写 SQLite | 真机分享和杀进程导入场景验收 |
 | iCloud Container 权限审核 | App Store 审核可能要求说明 | 隐私说明文档 + 明示数据流向 |
+| final transcription / diarization provider 未选择 | 当前实现只使用 Apple Speech 实时转写和本地 heuristic 派生；接外部 provider 需要用户确认服务商、key 存储和隐私边界 | 先保留原始录音与本地派生，provider 决策后按本地优先队列接入 |
 
 ---
 

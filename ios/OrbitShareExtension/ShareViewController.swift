@@ -1,4 +1,5 @@
 import MobileCoreServices
+import LinkPresentation
 import UniformTypeIdentifiers
 import UIKit
 
@@ -8,7 +9,9 @@ final class ShareViewController: UIViewController {
   private let itemLock = NSLock()
   private var sharedText = ""
   private var sharedURL: String?
+  private var sharedTitle: String?
   private var imageTempURLs: [URL] = []
+  private var metadataProvider: LPMetadataProvider?
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -71,6 +74,16 @@ final class ShareViewController: UIViewController {
             self.itemLock.lock()
             self.sharedURL = url.absoluteString
             self.itemLock.unlock()
+            let provider = LPMetadataProvider()
+            self.metadataProvider = provider
+            group.enter()
+            provider.startFetchingMetadata(for: url) { [weak self] metadata, _ in
+              defer { group.leave() }
+              guard let self else { return }
+              self.itemLock.lock()
+              self.sharedTitle = metadata?.title
+              self.itemLock.unlock()
+            }
           }
         } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
           group.enter()
@@ -100,7 +113,7 @@ final class ShareViewController: UIViewController {
 
     group.notify(queue: .main) { [weak self] in
       guard let self else { return }
-      self.textView.text = self.sharedText
+      self.textView.text = self.sharedText.isEmpty ? (self.sharedTitle ?? "") : self.sharedText
       self.statusLabel.text = self.imageTempURLs.isEmpty ? "Ready" : "\(self.imageTempURLs.count) image(s) attached"
     }
   }

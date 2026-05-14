@@ -62,7 +62,6 @@ async function applyRemoteFailure(
 ): Promise<'failed' | 'conflicted'> {
   const message = info.error_message ?? info.error_code ?? 'icloud.remote_failed';
   if (info.retryable === false) {
-    assertTransition(capture.sync_state, 'conflicted');
     await capturesRepo.updateSyncState(db, capture.id, {
       sync_state: 'conflicted',
       sync_last_error: message,
@@ -88,7 +87,6 @@ export async function processOneCapture(
 
   const ack = await transport.readAck(capture.id);
   if (ack !== null) {
-    assertTransition(capture.sync_state, 'acked');
     await capturesRepo.updateSyncState(db, capture.id, {
       sync_state: 'acked',
       acked_at: typeof ack.acked_at === 'string' ? ack.acked_at : isoNow(),

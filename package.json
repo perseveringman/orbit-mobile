@@ -29,6 +29,7 @@
     "expo-status-bar": "~3.0.9",
     "orbit-durable-fs": "file:modules/orbit-durable-fs",
     "orbit-icloud-bridge": "file:modules/orbit-icloud-bridge",
+    "orbit-image-tools": "file:modules/orbit-image-tools",
     "orbit-speech-recognition": "file:modules/orbit-speech-recognition",
     "react": "19.1.0",
     "react-native": "0.81.5",

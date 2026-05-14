@@ -37,4 +37,39 @@ describe('share inbox import', () => {
     });
     await expect(fs.getInfo(shareDir)).resolves.toMatchObject({ exists: false });
   });
+
+  it('continues importing other shares when one completed payload is invalid', async () => {
+    const db = await createMigratedTestDb();
+    const fs = new MemoryFileSystem();
+    await setValue(db, 'device_id', 'device-1');
+
+    const badDir = '/app-group/share-inbox/bad_payload';
+    await fs.ensureDir(badDir);
+    await fs.writeString(joinPath(badDir, 'payload.json'), '{bad json');
+    await fs.writeString(joinPath(badDir, '.complete'), '');
+
+    const goodDir = '/app-group/share-inbox/mob_cap_good_share';
+    await fs.ensureDir(joinPath(goodDir, 'attachments'));
+    await fs.writeString(
+      joinPath(goodDir, 'payload.json'),
+      JSON.stringify({
+        schema_version: 1,
+        id: 'mob_cap_good_share',
+        content: 'Still import me',
+        url: null,
+        attachments: [],
+      }),
+    );
+    await fs.writeString(joinPath(goodDir, '.complete'), '');
+
+    await expect(importShareInbox({ db, fs, sharedRoot: '/app-group' })).resolves.toBe(1);
+    await expect(capturesRepo.get(db, 'mob_cap_good_share')).resolves.toMatchObject({
+      id: 'mob_cap_good_share',
+      content_preview: 'Still import me',
+    });
+    await expect(fs.getInfo(badDir)).resolves.toMatchObject({ exists: false });
+    await expect(fs.getInfo('/app-group/share-inbox-failed/bad_payload/.failed.json')).resolves.toMatchObject({
+      exists: true,
+    });
+  });
 });

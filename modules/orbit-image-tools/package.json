@@ -1,0 +1,6 @@
+{
+  "name": "orbit-image-tools",
+  "version": "0.0.0",
+  "main": "src/index.ts",
+  "private": true
+}
