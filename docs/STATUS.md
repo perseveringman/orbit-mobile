@@ -3,16 +3,16 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-07（M0-M8 code-complete closure）
+**Last updated**: 2026-05-14（M9 recording local implementation）
 **Last updater**: Copilot
-**Current milestone**: **M0-M8 — code complete; manual device validation pending**
+**Current milestone**: **M0-M9 — code complete; manual device validation pending**
 **Next milestone**: 真机/iCloud/TestFlight 验收
 
 ---
 
 ## 🔴 给下一个 AI 的最重要信息
 
-**当前项目已经是可运行的 Expo SDK 54 TypeScript + iOS Development Build 项目，并完成 M2-M8 MVP 主链路：本地原子 Capture、iCloud Drive 同步、Mac inbound、语音实时转写/原始录音、图片附件、Share Extension、Widget 入口。**
+**当前项目已经是可运行的 Expo SDK 54 TypeScript + iOS Development Build 项目，并完成 M2-M9 主链路：本地原子 Capture、iCloud Drive 同步、Mac inbound、语音实时转写/原始录音、图片附件、Share Extension、Widget 入口，以及长录音 UI 的真实本地落地。**
 
 M7/M8 已接入原生入口：Share Extension 只写 App Group `share-inbox/` 交换目录，主 app 启动后通过 `createCapture()` 导入，继续走同一套五阶段本地原子写入协议；WidgetKit 只 deep link 到主 Capture。Extension/Widget 都不直接写 iCloud。
 
@@ -31,7 +31,7 @@ TestFlight 前优先验收：
 3. 本文件（你现在读的）
 4. `docs/ARCHITECTURE.md`
 5. `docs/DATA-MODEL.md` §2 attachments
-6. `docs/ROADMAP.md` M7/M8
+6. `docs/ROADMAP.md` M7/M8/M9
 
 **重要实现备注**：
 
@@ -52,6 +52,8 @@ TestFlight 前优先验收：
 - `sync_events.gc({ keepPerCapture })` 已实现窗口函数裁剪；全局同步状态改为 `useSyncStatus()` 聚合并 5s 刷新。
 - M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`，主 app 启动后导入到本地原子 Capture。
 - M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget，deep link 到 `orbit-mobile://`。
+- M9 长录音 UI 已从静态 mock 改为真实 Layer 2 数据：`recordings` 表 + `kind='recording'` capture + `audio.m4a` / `waveform.json` / `partial-transcript.ndjson` / `final-transcript.json` / 本地派生物附件。Recording Composer 以原始录音为最高优先级；iOS 录音与 Apple Speech 实时转写共用同一条 native 麦克风管线，实时波形来自同一麦克风 buffer 的 RMS/peak 采样，避免 `expo-av` 与 Speech 并发抢占音频会话；未配置云端模型时使用透明的 `local-live-transcript` / `local-heuristic` 派生，不引入服务端。
+- M9 仍待真机人工验收：后台持续录音、锁屏/来电中断、长音频耗电、以及后续云端 final transcription/diarization provider 配置。
 - M2 已通过自动化验证；飞行模式、冷启动 <1s、真机杀进程恢复仍需人工在真机上执行。
 - M3 已通过自动化验证；iCloud 登录、空间满、Finder 可见性和真机上传状态仍需人工验收。
 - 本机 `周延博的 iPhone` 已完成 `iphoneos` Debug build、签名、安装和启动；需要用户在设备上继续执行飞行模式/杀进程/iCloud Finder/Share/Widget 交互验收。
@@ -139,6 +141,7 @@ TestFlight 前优先验收：
 | M6 图片 Capture | implemented; media display done; true-device validation pending | M4 |
 | M7 Share Extension | implemented; true-device share sheet validation pending | M6 |
 | M8 便捷入口 | implemented; lock-screen/widget timing validation pending | M7 |
+| M9 长录音 + 录音笔记 UI | local implementation complete; provider/manual validation pending | M8 |
 
 ---
 

@@ -29,6 +29,8 @@ export function VoiceButton({
     if (disabled || recording) return;
     let session: LiveTranscriptionSession | null = null;
     try {
+      await startVoiceRecording();
+      setRecording(true);
       session = await startLiveTranscription(
         (state) => {
           if (state.transcript.trim().length > 0) {
@@ -40,8 +42,6 @@ export function VoiceButton({
         },
       );
       setTranscription(session);
-      await startVoiceRecording();
-      setRecording(true);
     } catch (error) {
       await session?.stop();
       setTranscription(null);

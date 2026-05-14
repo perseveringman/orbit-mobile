@@ -1,6 +1,6 @@
 # 持续录音 + 实时/整体双线转写 + 多结构笔记
 
-> **Status**: 设计提案（mock UI 已并行实现，落地分阶段）
+> **Status**: 本地实现已落地（录音 UI 不再使用静态 mock；云端 final/diarization provider 后续接入）
 > **Date**: 2026-05-13
 > **Author**: Codex（按用户口述需求草拟）
 > **Companion docs**: [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) · [`docs/DATA-MODEL.md`](../DATA-MODEL.md) · [`docs/UX-PRINCIPLES.md`](../UX-PRINCIPLES.md) · [`docs/VISION.md`](../VISION.md)
@@ -355,8 +355,8 @@ interface FinalTranscribeProvider {
 
 | 里程碑 | 范围 |
 |---|---|
-| **M9.0 (本 PR — UI mock)** | 路由 + Recording Composer + 详情页 + 笔记多 Tab + Ask + 列表，全部走 mock data |
-| M9.1 | `recordings` 表 + manifest schema + `partial-transcript.ndjson` 真实写入 |
+| **M9.0** | 路由 + Recording Composer + 详情页 + 笔记多 Tab + Ask + 列表 |
+| **M9.1** | `recordings` 表 + manifest schema + `partial-transcript.ndjson` / `final-transcript.json` 真实写入（已完成） |
 | M9.2 | Long-mode partial ASR（解决 Apple 1 分钟 reset） |
 | M9.3 | Final transcribe provider 接口 + Whisper/Gemini 二选一接入 |
 | M9.4 | Diarization 接入（pyannote 远端 / Apple 18+ on-device） |

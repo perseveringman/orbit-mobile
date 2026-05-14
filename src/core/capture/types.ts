@@ -11,7 +11,7 @@
 
 import type { CaptureKind } from '../../types/capture';
 
-export type AttachmentType = 'audio' | 'image' | 'file';
+export type AttachmentType = 'audio' | 'image' | 'file' | 'transcript' | 'transcript-partial' | 'derivative';
 
 export interface CaptureAttachment {
   type: AttachmentType;
@@ -29,6 +29,9 @@ export interface CaptureAttachment {
   height?: number;
   captured_at?: string;
   original_exif?: Record<string, unknown>;
+  schema?: string;
+  derivative_kind?: string;
+  template_id?: string;
 }
 
 export interface ManifestAttachment {
@@ -46,6 +49,24 @@ export interface ManifestAttachment {
   height?: number;
   captured_at?: string;
   original_exif?: Record<string, unknown>;
+  schema?: string;
+  derivative_kind?: string;
+  template_id?: string;
+}
+
+export interface ManifestRecordingInfo {
+  duration_ms: number;
+  language_hints: string[];
+  speakers: { id: string; label: string; color?: string }[];
+  partial_provider: string;
+  final_provider: string;
+  diarization_provider?: string | null;
+}
+
+export interface ManifestDerivativeRef {
+  kind: string;
+  filename: string;
+  template_id?: string;
 }
 
 export interface CaptureManifest {
@@ -60,6 +81,8 @@ export interface CaptureManifest {
   content: string;
   tags: string[];
   attachments: ManifestAttachment[];
+  recording?: ManifestRecordingInfo;
+  derivatives?: ManifestDerivativeRef[];
   context: {
     clipboard_hint: string | null;
     share_context: Record<string, unknown> | null;
@@ -84,6 +107,8 @@ export interface BuildManifestInput {
   content: string;
   tags?: string[];
   attachments?: ManifestAttachment[];
+  recording?: ManifestRecordingInfo;
+  derivatives?: ManifestDerivativeRef[];
   clipboardHint?: string | null;
   shareContext?: Record<string, unknown> | null;
   inputStartedAt?: string | null;
@@ -100,4 +125,6 @@ export interface CreateTextCaptureInput {
 export interface CreateCaptureInput extends CreateTextCaptureInput {
   kind?: CaptureKind;
   attachments?: CaptureAttachment[];
+  recording?: ManifestRecordingInfo;
+  derivatives?: ManifestDerivativeRef[];
 }

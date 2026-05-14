@@ -44,6 +44,14 @@ export interface CreateCaptureOptions {
   id?: string;
   txnId?: string;
   fault?: AtomicWriteFault;
+  afterCaptureInsert?: (context: {
+    db: SQLiteDatabaseLike;
+    id: string;
+    manifest: CaptureManifest;
+    localPath: string;
+    byteSize: number;
+    createdAt: string;
+  }) => Promise<void>;
 }
 
 export interface AtomicWriteResult {
@@ -123,7 +131,7 @@ export async function createCapture(
   const deviceId = await getOrInit(opts.db, 'device_id', generateDeviceId);
 
   const attachments = await prepareAttachments(fs, rawAttachments);
-  const manifest = buildManifest({
+    const manifest = buildManifest({
     id,
     sourceVersion: opts.sourceVersion ?? '0.0.0',
     deviceId,
@@ -133,6 +141,8 @@ export async function createCapture(
     content,
     tags: input.tags,
     attachments,
+    recording: input.recording,
+    derivatives: input.derivatives,
     inputStartedAt: input.inputStartedAt ?? null,
     inputFinishedAt,
   });
@@ -203,6 +213,14 @@ export async function createCapture(
         local_path: capturePath,
       });
       await eventsRepo.append(txn, id, 'created', { source: 'atomic-write' }, createdAt);
+      await opts.afterCaptureInsert?.({
+        db: txn,
+        id,
+        manifest,
+        localPath: capturePath,
+        byteSize,
+        createdAt,
+      });
       if (input.sessionId) {
         const { del } = await import('../storage/drafts-repo');
         await del(txn, input.sessionId);
@@ -249,6 +267,9 @@ async function prepareAttachments(
       height: attachment.height,
       captured_at: attachment.captured_at,
       original_exif: attachment.original_exif,
+      schema: attachment.schema,
+      derivative_kind: attachment.derivative_kind,
+      template_id: attachment.template_id,
     });
   }
   return prepared;

@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID as nodeRandomUUID } from 'node:crypto';
 
 export enum CryptoDigestAlgorithm {
   SHA256 = 'SHA-256',
@@ -24,4 +24,8 @@ export function digest(
     : Buffer.from(data);
   const hash = createHash('sha256').update(view).digest();
   return Promise.resolve(hash.buffer.slice(hash.byteOffset, hash.byteOffset + hash.byteLength));
+}
+
+export function randomUUID(): string {
+  return nodeRandomUUID();
 }

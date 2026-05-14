@@ -16,7 +16,7 @@ import {
   View,
 } from 'react-native';
 
-import { MOCK_TEMPLATES } from '../../../core/recording/mock-data';
+import { BUILTIN_TEMPLATES } from '../../../core/recording/templates';
 import type { RecordingTemplate } from '../../../types/recording';
 import { colors, radius, spacing } from '../theme';
 
@@ -27,9 +27,9 @@ interface Props {
 }
 
 export function TemplateSheet({ visible, onClose, onApply }: Props): React.ReactElement {
-  const [selected, setSelected] = useState<string>(MOCK_TEMPLATES[0]?.id ?? '');
-  const featured = MOCK_TEMPLATES.slice(0, 2);
-  const others = MOCK_TEMPLATES.slice(2);
+  const [selected, setSelected] = useState<string>(BUILTIN_TEMPLATES[0]?.id ?? '');
+  const featured = BUILTIN_TEMPLATES.slice(0, 2);
+  const others = BUILTIN_TEMPLATES.slice(2);
 
   return (
     <Modal
@@ -90,7 +90,7 @@ export function TemplateSheet({ visible, onClose, onApply }: Props): React.React
             <Pressable
               accessibilityRole="button"
               onPress={() => {
-                const tpl = MOCK_TEMPLATES.find((t) => t.id === selected);
+                const tpl = BUILTIN_TEMPLATES.find((t) => t.id === selected);
                 if (tpl) onApply(tpl);
               }}
               style={({ pressed }) => [styles.cta, pressed && styles.pressed]}

@@ -11,7 +11,7 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -21,7 +21,8 @@ import {
   View,
 } from 'react-native';
 
-import { getMockRecording } from '../../../core/recording/mock-data';
+import { loadRecordingDetail } from '../../../core/recording/recording-service';
+import type { RecordingDetail } from '../../../types/recording';
 import { colors, radius, spacing } from '../theme';
 
 interface Props {
@@ -48,20 +49,35 @@ const ACTIONS = [
 
 export function RecordingAskScreen({ id }: Props): React.ReactElement {
   const router = useRouter();
-  const detail = getMockRecording(id);
+  const [detail, setDetail] = useState<RecordingDetail | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   let messageId = messages.length;
+
+  useEffect(() => {
+    let cancelled = false;
+    loadRecordingDetail(id)
+      .then((loaded) => {
+        if (!cancelled) setDetail(loaded);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   function send(question: string): void {
     if (!question.trim()) return;
     messageId += 1;
     const user: ChatMessage = { id: messageId, role: 'user', text: question.trim() };
     messageId += 1;
-    const reply: ChatMessage = {
+      const reply: ChatMessage = {
       id: messageId,
       role: 'assistant',
-      text: mockReply(question),
+      text: buildLocalReply(question, detail),
     };
     setMessages((prev) => [...prev, user, reply]);
     setDraft('');
@@ -104,6 +120,8 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
             {detail.meta.duration_ms / 60000 | 0} 分钟 · {detail.meta.speakers.length} 位说话人
           </Text>
         </View>
+      ) : loadError ? (
+        <Text style={styles.error}>{loadError}</Text>
       ) : null}
 
       <ScrollView
@@ -179,38 +197,43 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
   );
 }
 
-function mockReply(question: string): string {
+function buildLocalReply(question: string, detail: RecordingDetail | null): string {
+  if (!detail) {
+    return '这条录音还没有加载完成。数据只会从本机读取，请稍后再试。';
+  }
+  const transcript = detail.transcript.segments.map((segment) => segment.text).join('\n');
+  const todos = detail.derivatives.todos?.items ?? [];
+  const decisions = detail.derivatives.decisions?.items ?? [];
+  const risks = detail.derivatives.risks?.items ?? [];
   if (question.includes('待办')) {
-    return [
-      '从这次录音里提取出 3 条待办：',
-      '1. Carlin · 48h 内整理决策与风险并确认 Owner',
-      '2. Patrick · 同步监控告警阈值文档',
-      '3. Peter · 完成数据回填 dry-run',
-    ].join('\n');
+    if (todos.length === 0) return '本地派生器没有从转写中识别到明确待办。你可以在 Mac 端用完整模型重新生成。';
+    return ['从这次录音里提取到的待办：', ...todos.map((item, index) => `${index + 1}. ${item.title} — ${item.body}`)].join('\n');
   }
   if (question.includes('邮件') || question.toLowerCase().includes('email')) {
     return [
-      'Subject: Q1 Delivery Sync — Decisions & Next Steps',
+      `Subject: ${detail.meta.title} — Follow-up`,
       '',
       'Hi team,',
       '',
-      'A quick recap of today\'s 30-min sync:',
-      '- Q1 scope locked: onboarding redesign + analytics dashboard.',
-      '- Automation deferred to Q2.',
-      '- Voice cloning beta slipped to May.',
+      'A quick recap from the recording:',
+      ...(decisions.length > 0
+        ? decisions.map((item) => `- ${item.body}`)
+        : [`- ${transcript.slice(0, 180) || 'The original audio has been saved locally.'}`]),
       '',
-      'Owners will be confirmed within 48h. Please flag conflicts by Friday.',
+      'Please review and add any missing context before sending.',
       '',
       'Thanks,',
-      'Carlin',
     ].join('\n');
   }
+  if (question.includes('风险')) {
+    if (risks.length === 0) return '本地派生器没有识别到明确风险；原始转写仍可在详情页逐段校对。';
+    return ['识别到的风险：', ...risks.map((item, index) => `${index + 1}. ${item.body}`)].join('\n');
+  }
   return [
-    '基于本次录音，我看到的关键信号是：',
-    '• 团队主动在 Q1 内做"减法"，把质量列为首要目标。',
-    '• 风险集中在仪表盘的数据回填，建议尽早 dry-run。',
-    '• AI 路线图保留摘要升级、延后语音克隆。',
-    '需要我把这些洞察转成对 Mac 端 Inbox 的待办吗？',
+    '基于本机转写，我看到的关键信号是：',
+    detail.derivatives.summary?.body ?? (transcript.slice(0, 500) || '暂无可用转写；原始录音已完整保存。'),
+    '',
+    '如果需要更强的语义分析，可在 Mac 端接入完整模型后重新生成派生笔记。',
   ].join('\n');
 }
 
@@ -270,6 +293,12 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
     marginTop: 4,
+  },
+  error: {
+    color: colors.danger,
+    fontSize: 13,
+    marginTop: spacing.md,
+    textAlign: 'center',
   },
   body: {
     flex: 1,

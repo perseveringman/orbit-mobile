@@ -4,7 +4,7 @@
  * 与设计图 1 对齐：顶部 来源 / 转写 / 标记 三 Tab；
  *   - 来源：原音播放器 + 大纲（带时间戳）。
  *   - 转写：按说话人分块，可点跳转、可点赞反馈。
- *   - 标记：用户高亮 + AI 高亮（mock 占位）。
+ *   - 标记：从真实转写片段生成可跳转书签。
  * 顶部右侧"笔记"按钮跳到结构化笔记页（设计图 2/3）。
  * 顶部右侧"询问"按钮跳到 Ask 页（设计图 5）。
  *
@@ -12,7 +12,8 @@
  */
 
 import { Link, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { Audio, type AVPlaybackStatus } from 'expo-av';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -21,7 +22,8 @@ import {
   View,
 } from 'react-native';
 
-import { getMockRecording } from '../../../core/recording/mock-data';
+import { loadRecordingDetail } from '../../../core/recording/recording-service';
+import { prepareAudioPlayback } from '../../../core/audio/playback';
 import type {
   RecordingDetail,
   RecordingSpeaker,
@@ -42,34 +44,119 @@ interface Props {
 
 export function RecordingDetailScreen({ id }: Props): React.ReactElement {
   const router = useRouter();
-  const detail = getMockRecording(id);
+  const [detail, setDetail] = useState<RecordingDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<DetailTab>('source');
   const [playing, setPlaying] = useState(false);
+  const [playbackLoading, setPlaybackLoading] = useState(false);
   const [position, setPosition] = useState(0);
   const [feedback, setFeedback] = useState<Record<number, 'up' | 'down' | undefined>>({});
+  const soundRef = useRef<Audio.Sound | null>(null);
 
   const total = detail?.meta.duration_ms ?? 1;
 
-  // 模拟播放进度走条
   useEffect(() => {
-    if (!playing) return;
-    const t = setInterval(() => {
-      setPosition((p) => {
-        const next = p + 1000;
-        if (next >= total) {
-          setPlaying(false);
-          return total;
-        }
-        return next;
+    let cancelled = false;
+    setLoading(true);
+    loadRecordingDetail(id)
+      .then((loaded) => {
+        if (!cancelled) setDetail(loaded);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [playing, total]);
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    return () => {
+      void soundRef.current?.unloadAsync();
+      soundRef.current = null;
+    };
+  }, []);
+
+  async function togglePlay(): Promise<void> {
+    if (playbackLoading) return;
+    setPlaybackLoading(true);
+    setLoadError(null);
+    try {
+      if (!detail?.audio_uri) {
+        setLoadError('recording.audio_missing');
+        return;
+      }
+      if (detail.audio_exists === false) {
+        setLoadError('recording.audio_file_missing');
+        return;
+      }
+      await prepareAudioPlayback();
+      const current = soundRef.current;
+      if (current) {
+        const status = await current.getStatusAsync();
+        if (status.isLoaded && status.isPlaying) {
+          await current.pauseAsync();
+          setPlaying(false);
+          return;
+        }
+        if (status.isLoaded && status.positionMillis >= Math.max(0, total - 250)) {
+          await current.setPositionAsync(0);
+          setPosition(0);
+        }
+        await current.playAsync();
+        setPlaying(true);
+        return;
+      }
+
+      const initialPosition = position >= Math.max(0, total - 250) ? 0 : position;
+      const created = await Audio.Sound.createAsync(
+        { uri: detail.audio_uri },
+        { shouldPlay: false, positionMillis: initialPosition, progressUpdateIntervalMillis: 250 },
+        (status) => handlePlaybackStatus(status, total, setPosition, setPlaying, setLoadError),
+      );
+      soundRef.current = created.sound;
+      await created.sound.playAsync();
+      setPlaying(true);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+      setPlaying(false);
+    } finally {
+      setPlaybackLoading(false);
+    }
+  }
+
+  async function jumpTo(ms: number): Promise<void> {
+    try {
+      const next = Math.max(0, Math.min(total, ms));
+      setPosition(next);
+      setTab('source');
+      if (soundRef.current) {
+        await prepareAudioPlayback();
+        await soundRef.current.setPositionAsync(next);
+        await soundRef.current.playAsync();
+        setPlaying(true);
+      }
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={styles.notFound}>正在读取本机录音…</Text>
+      </View>
+    );
+  }
 
   if (!detail) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.notFound}>找不到这条录音</Text>
+        <Text style={styles.notFound}>{loadError ?? '找不到这条录音'}</Text>
         <Link href="/recording" style={styles.notFoundLink}>
           ← 返回录音列表
         </Link>
@@ -77,17 +164,12 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
     );
   }
 
-  function jumpTo(ms: number): void {
-    setPosition(Math.max(0, Math.min(total, ms)));
-    setTab('source');
-    setPlaying(true);
-  }
-
   return (
     <View style={styles.container}>
       <Header detail={detail} onBack={() => router.back()} />
       <View style={styles.titleArea}>
         <Text style={styles.title}>{detail.meta.title}</Text>
+        {loadError ? <Text style={styles.error}>{loadError}</Text> : null}
         <View style={styles.metaRow}>
           <StatusBadge state={detail.meta.final_state} />
           <Text style={styles.metaText}>
@@ -118,8 +200,13 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
             detail={detail}
             playing={playing}
             position={position}
-            onTogglePlay={() => setPlaying((v) => !v)}
-            onSeek={jumpTo}
+            onTogglePlay={() => {
+              void togglePlay();
+            }}
+            loading={playbackLoading}
+            onSeek={(ms) => {
+              void jumpTo(ms);
+            }}
           />
         ) : null}
         {tab === 'transcript' ? (
@@ -130,7 +217,9 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
             onFeedback={(seg, kind) =>
               setFeedback((prev) => ({ ...prev, [seg.id]: prev[seg.id] === kind ? undefined : kind }))
             }
-            onJump={jumpTo}
+            onJump={(ms) => {
+              void jumpTo(ms);
+            }}
           />
         ) : null}
         {tab === 'mark' ? <MarkTab detail={detail} /> : null}
@@ -190,17 +279,41 @@ function Header({
   );
 }
 
+function handlePlaybackStatus(
+  status: AVPlaybackStatus,
+  total: number,
+  setPosition: (value: number) => void,
+  setPlaying: (value: boolean) => void,
+  setError: (value: string | null) => void,
+): void {
+  if (!status.isLoaded) {
+    if (status.error) {
+      setError(status.error);
+      setPlaying(false);
+    }
+    return;
+  }
+  setPosition(status.positionMillis);
+  setPlaying(status.isPlaying);
+  if (status.didJustFinish) {
+    setPlaying(false);
+    setPosition(total);
+  }
+}
+
 function SourceTab({
   detail,
   playing,
   position,
   onTogglePlay,
+  loading,
   onSeek,
 }: {
   detail: RecordingDetail;
   playing: boolean;
   position: number;
   onTogglePlay: () => void;
+  loading: boolean;
   onSeek: (ms: number) => void;
 }): React.ReactElement {
   const total = detail.meta.duration_ms;
@@ -209,11 +322,14 @@ function SourceTab({
     <View>
       <View style={styles.playerCard}>
         <Waveform
-          seed={detail.meta.id}
+          samples={detail.waveform_samples}
           height={92}
           bars={80}
           progress={progress}
         />
+        {detail.audio_exists === false ? (
+          <Text style={styles.playerError}>原始录音文件缺失，无法播放。</Text>
+        ) : null}
         <View style={styles.playerTimeRow}>
           <Text style={styles.timer}>{formatTimestamp(position)}</Text>
           <Text style={styles.timerMuted}>{formatTimestamp(total)}</Text>
@@ -225,7 +341,7 @@ function SourceTab({
             onPress={onTogglePlay}
             style={({ pressed }) => [styles.playBtn, pressed && styles.pressed]}
           >
-            <Text style={styles.playBtnText}>{playing ? '暂停' : '播放'}</Text>
+            <Text style={styles.playBtnText}>{loading ? '载入' : playing ? '暂停' : '播放'}</Text>
           </Pressable>
           <PlayerBtn label="+15" onPress={() => onSeek(position + 15_000)} />
           <PlayerBtn label="1×" onPress={() => undefined} />
@@ -340,7 +456,6 @@ function TranscriptTab({
 }
 
 function MarkTab({ detail }: { detail: RecordingDetail }): React.ReactElement {
-  // mock：拿前两段当书签 + 一条 AI 标记
   const samples = detail.transcript.segments.slice(0, 2);
   return (
     <View>
@@ -454,6 +569,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  error: {
+    color: colors.danger,
+    fontSize: 12,
+    marginTop: 8,
+  },
   tabsRow: {
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.md,
@@ -477,6 +597,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 10,
+  },
+  playerError: {
+    color: colors.danger,
+    fontSize: 12,
+    marginTop: 10,
+    textAlign: 'center',
   },
   timer: {
     color: colors.textPrimary,

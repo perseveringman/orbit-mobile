@@ -2,13 +2,12 @@
  * RecordingsListScreen — 录音时间轴列表
  *
  * 与"最近 Capture"区分：长录音单独走时间轴。
- * Mock 阶段：直接读 listMockRecordings()。
  *
  * @see docs/plans/2026-05-13-long-recording-and-transcript.md §8
  */
 
 import { Link, useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -18,7 +17,7 @@ import {
 } from 'react-native';
 
 import type { RecordingMeta } from '../../../types/recording';
-import { listMockRecordings } from '../../../core/recording/mock-data';
+import { listRecordingMetas } from '../../../core/recording/recording-service';
 import { Waveform } from '../components/Waveform';
 import { StatusBadge } from '../components/StatusBadge';
 import {
@@ -36,7 +35,29 @@ interface Group {
 
 export function RecordingsListScreen(): React.ReactElement {
   const router = useRouter();
-  const groups = useMemo(() => groupByDate(listMockRecordings()), []);
+  const [recordings, setRecordings] = useState<RecordingMeta[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const groups = useMemo(() => groupByDate(recordings), [recordings]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listRecordingMetas()
+      .then((items) => {
+        if (!cancelled) setRecordings(items);
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setError(loadError instanceof Error ? loadError.message : String(loadError));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -59,6 +80,14 @@ export function RecordingsListScreen(): React.ReactElement {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
+        {loading ? <Text style={styles.hint}>正在读取本机录音…</Text> : null}
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {!loading && groups.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>还没有录音</Text>
+            <Text style={styles.emptyBody}>点右上角“开始录”，录音会先完整保存在本机。</Text>
+          </View>
+        ) : null}
         {groups.map((group) => (
           <View key={group.key} style={styles.group}>
             <Text style={styles.groupLabel}>{group.label}</Text>
@@ -99,7 +128,7 @@ export function RecordingsListScreen(): React.ReactElement {
                     </View>
                     <View style={styles.waveWrap}>
                       <Waveform
-                        seed={item.id}
+                        samples={item.waveform_samples}
                         bars={48}
                         height={36}
                         variant="compact"
@@ -245,6 +274,32 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     paddingHorizontal: 8,
+    textAlign: 'center',
+  },
+  error: {
+    color: colors.danger,
+    fontSize: 13,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  emptyCard: {
+    backgroundColor: colors.bgSoft,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 18,
+  },
+  emptyTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  emptyBody: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
     textAlign: 'center',
   },
 });

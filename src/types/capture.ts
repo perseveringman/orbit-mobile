@@ -16,7 +16,7 @@ export type SyncState =
   | 'failed'
   | 'conflicted';
 
-export type CaptureKind = 'thought' | 'voice' | 'photo' | 'share' | 'mixed';
+export type CaptureKind = 'thought' | 'voice' | 'photo' | 'share' | 'mixed' | 'recording';
 
 export interface CaptureRow {
   id: string;

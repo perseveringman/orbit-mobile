@@ -23,7 +23,7 @@ CREATE TABLE captures (
   captured_at_local    TEXT NOT NULL,        -- 带时区的本地时间，展示用
   
   -- 内容
-  kind                 TEXT NOT NULL,        -- 'thought' | 'voice' | 'photo' | 'share' | 'mixed'
+  kind                 TEXT NOT NULL,        -- 'thought' | 'voice' | 'photo' | 'share' | 'mixed' | 'recording'
   content_preview      TEXT,                 -- 前 200 字，列表展示用
   content_hash         TEXT NOT NULL,        -- manifest.json 的 sha256
   byte_size            INTEGER NOT NULL,     -- 整个 capture 目录总大小
@@ -148,6 +148,36 @@ CREATE TABLE device_info (
 - `user_setting_image_compression` — `always | wifi_only | never`
 - `user_setting_gc_days` — acked 后多久本地清理，默认 30
 
+### 1.5 recordings 表
+
+长录音是 `captures.kind = 'recording'` 的扩展形态；用户数据仍以 capture 目录为真相源，`recordings` 只保存查询和 UI 所需元数据。
+
+```sql
+CREATE TABLE recordings (
+  id                   TEXT PRIMARY KEY,     -- 与 captures.id 一致
+  title                TEXT NOT NULL,
+  duration_ms          INTEGER NOT NULL,
+  channels             INTEGER DEFAULT 1,
+  sample_rate          INTEGER DEFAULT 48000,
+  language_hints       TEXT,                 -- JSON array
+  speaker_count        INTEGER,
+  partial_state        TEXT NOT NULL DEFAULT 'idle',
+  final_state          TEXT NOT NULL DEFAULT 'pending',
+  partial_provider     TEXT NOT NULL DEFAULT 'unavailable',
+  final_provider       TEXT,
+  final_attempts       INTEGER DEFAULT 0,
+  final_last_error     TEXT,
+  final_done_at        TEXT,
+  created_at           TEXT NOT NULL,
+  FOREIGN KEY (id) REFERENCES captures(id) ON DELETE CASCADE
+);
+```
+
+当前本地实现写入：
+- `partial_provider = 'ios-speech' | 'unavailable'`
+- `final_provider = 'local-live-transcript'`
+- 派生物 provider 为 `local-heuristic`
+
 ---
 
 ## 2. manifest.json Schema
@@ -243,6 +273,41 @@ CREATE TABLE device_info (
 | `photo` | 主体是图片（有/无备注） |
 | `share` | 来自 Share Extension |
 | `mixed` | 混合（文字 + 多附件） |
+| `recording` | 长录音（原音 + partial/final transcript + 派生笔记） |
+
+### 长录音增量字段
+
+`recording` capture 的 manifest 会附加：
+
+```json
+{
+  "kind": "recording",
+  "attachments": [
+    {"type": "audio", "filename": "audio.m4a"},
+    {"type": "derivative", "filename": "waveform.json", "schema": "orbit.waveform@1", "derivative_kind": "waveform"},
+    {"type": "transcript-partial", "filename": "partial-transcript.ndjson", "schema": "orbit.transcript-partial@1"},
+    {"type": "transcript", "filename": "final-transcript.json", "schema": "orbit.transcript@1"},
+    {"type": "derivative", "filename": "summary.json", "derivative_kind": "summary"}
+  ],
+  "recording": {
+    "duration_ms": 65000,
+    "language_hints": ["zh-CN"],
+    "speakers": [{"id": "S1", "label": "说话人", "color": "#2563eb"}],
+    "partial_provider": "ios-speech",
+    "final_provider": "local-live-transcript",
+    "diarization_provider": null
+  },
+  "derivatives": [
+    {"kind": "outline", "filename": "outline.json"},
+    {"kind": "summary", "filename": "summary.json"},
+    {"kind": "decisions", "filename": "decisions.json"},
+    {"kind": "risks", "filename": "risks.json"},
+    {"kind": "todos", "filename": "todos.json"}
+  ]
+}
+```
+
+`waveform.json` 保存录音时从同一麦克风 buffer 抽取的 RMS/peak 包络采样（0..1），用于列表、录音中和详情页的真实波形显示。所有这些文件与 `audio.m4a` 一起走同一条五阶段原子写入协议，然后由现有 iCloud worker 同步。
 
 ### 校验和文件
 

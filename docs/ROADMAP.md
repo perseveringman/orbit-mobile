@@ -27,8 +27,10 @@
    M7: Share Extension (implemented)
       ↓
    M8: 粘贴板 + Widget 等便捷入口 (implemented)
-     ↓
-  MVP 发布！
+      ↓
+   M9: 长录音 + 录音笔记 UI 本地落地 (implemented)
+      ↓
+   MVP 发布！
      ↓
   V2: Siri / Watch / OCR / Whisper 等长尾能力
 ```
@@ -232,9 +234,24 @@
 
 ---
 
+## M9 — 长录音 + 录音笔记 UI（implemented）
+
+**目标**：把 M9.0 静态 UI mock 接入真实本地录音与 Layer 2 数据。
+
+- [x] `recordings` 表 + migration v2
+- [x] `kind='recording'` manifest 增量：原音、partial/final transcript、outline/summary/decisions/risks/todos
+- [x] Recording Composer 使用真实录音 + Apple Speech 可用时实时转写
+- [x] 录音列表 / 详情 / 笔记 / Ask 从 SQLite + capture 文件读取
+- [x] 未配置云端 provider 时使用本地 `local-live-transcript` / `local-heuristic`，不引入服务端
+- [ ] 云端 final transcription provider 配置（用户自持 key）
+- [ ] diarization provider 接入
+- [ ] 真机后台/锁屏/来电中断验收
+
+---
+
 ## 🎉 MVP 发布
 
-M8 完成后可发 TestFlight，收集早期用户反馈。
+M9 真机验收后可发 TestFlight，收集早期用户反馈。
 
 ---
 

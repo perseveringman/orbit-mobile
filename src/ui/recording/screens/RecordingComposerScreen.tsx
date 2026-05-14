@@ -1,16 +1,15 @@
 /**
  * RecordingComposerScreen — 长录音 / 录音中页面
  *
- * 实时转写体验：partial 流式追加 + 自动滚屏 + 大纲 placeholder。
- * Mock 阶段：用 MOCK_LIVE_PARTIALS 模拟 ASR 推流，UI 与真实接入一致。
- *
- * 录音停止后跳转 detail 页（mock 中固定跳到 recording 001 这条已完成的）。
+ * 实时转写体验：真实录音 + Apple Speech 可用时流式更新；停止后走本地原子 capture。
  *
  * @see docs/plans/2026-05-13-long-recording-and-transcript.md §4.2
  */
 
+import Constants from 'expo-constants';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -22,10 +21,20 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  MOCK_LANGUAGES,
-  MOCK_LIVE_PARTIALS,
-  getMockRecording,
-} from '../../../core/recording/mock-data';
+  addVoiceRecordingLevelListener,
+  cancelVoiceRecording,
+  pauseVoiceRecording,
+  resumeVoiceRecording,
+  startVoiceRecording,
+  stopVoiceRecording,
+} from '../../../core/audio/recorder';
+import {
+  startLiveTranscription,
+  type LiveTranscriptionSession,
+} from '../../../core/audio/transcription';
+import { createRecordingCapture, type LivePartialInput } from '../../../core/recording/recording-service';
+import { openDb } from '../../../core/storage/db';
+import { runSyncTick } from '../../../core/sync/worker';
 import type { RecordingSpeaker } from '../../../types/recording';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SpeakerAvatar } from '../components/SpeakerAvatar';
@@ -43,70 +52,165 @@ interface PartialLine {
 }
 
 const FALLBACK_SPEAKER: RecordingSpeaker = {
-  id: 'S?',
+  id: 'S1',
   label: '说话人',
-  color: '#94a3b8',
+  color: '#2563eb',
 };
+
+const LANGUAGES = [
+  { code: 'auto', label: '自动检测' },
+  { code: 'zh-CN', label: '中文' },
+  { code: 'en-US', label: 'English' },
+  { code: 'ja-JP', label: '日本語' },
+];
 
 export function RecordingComposerScreen(): React.ReactElement {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<ComposerTab>('transcript');
-  const [recording, setRecording] = useState(true);
+  const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [waveformSamples, setWaveformSamples] = useState<number[]>([]);
   const [partials, setPartials] = useState<PartialLine[]>([]);
   const [language, setLanguage] = useState('auto');
   const [diarization, setDiarization] = useState(true);
   const [title, setTitle] = useState('新会议 · 现在');
+  const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
+  const startedAtRef = useRef(new Date().toISOString());
+  const startedMsRef = useRef(Date.now());
+  const transcriptionRef = useRef<LiveTranscriptionSession | null>(null);
+  const transcriptTextRef = useRef('');
+  const partialsRef = useRef<LivePartialInput[]>([]);
+  const partialProviderRef = useRef<'ios-speech' | 'unavailable'>('unavailable');
+  const waveformRef = useRef<number[]>([]);
+  const levelSubscriptionRef = useRef<{ remove(): void } | null>(null);
 
-  const speakerById = useMemo(() => {
-    const tableSource = getMockRecording('mob_cap_rec_001');
-    const map = new Map<string, RecordingSpeaker>();
-    tableSource?.meta.speakers.forEach((s) => map.set(s.id, s));
-    return map;
+  useEffect(() => {
+    let cancelled = false;
+    async function begin(): Promise<void> {
+      try {
+        startedAtRef.current = new Date().toISOString();
+        startedMsRef.current = Date.now();
+        waveformRef.current = [];
+        setWaveformSamples([]);
+        await startVoiceRecording();
+        if (!cancelled) setRecording(true);
+        levelSubscriptionRef.current = addVoiceRecordingLevelListener((level) => {
+          const sample = Math.max(level.rms, level.peak * 0.75);
+          waveformRef.current = [...waveformRef.current, Math.max(0, Math.min(1, sample))];
+          setWaveformSamples(waveformRef.current.slice(-240));
+        });
+        const session = await startLiveTranscription((state) => {
+          partialProviderRef.current = state.source;
+          transcriptTextRef.current = state.transcript;
+          if (state.transcript.trim().length === 0) return;
+          const partial: LivePartialInput = {
+            elapsed_ms: Math.max(0, Date.now() - startedMsRef.current),
+            speaker: FALLBACK_SPEAKER.id,
+            text: state.transcript,
+            is_final: false,
+          };
+          partialsRef.current = [partial];
+          setPartials([
+            {
+              ts: partial.elapsed_ms,
+              speaker: FALLBACK_SPEAKER,
+              text: partial.text,
+              isFinal: false,
+            },
+          ]);
+          requestAnimationFrame(() => {
+            scrollRef.current?.scrollToEnd({ animated: true });
+          });
+        });
+        transcriptionRef.current = session;
+        partialProviderRef.current = session.source;
+      } catch (startError) {
+        if (!cancelled) {
+          setError(startError instanceof Error ? startError.message : String(startError));
+        }
+        await transcriptionRef.current?.stop();
+        transcriptionRef.current = null;
+      }
+    }
+    void begin();
+    return () => {
+      cancelled = true;
+      void transcriptionRef.current?.stop();
+      transcriptionRef.current = null;
+      levelSubscriptionRef.current?.remove();
+      levelSubscriptionRef.current = null;
+      void cancelVoiceRecording().catch(() => undefined);
+    };
   }, []);
 
-  // tick：1) 时长走表 2) 每 700ms 推一条 partial
   useEffect(() => {
     if (!recording || paused) return;
-    const start = Date.now() - elapsedMs;
     const t = setInterval(() => {
-      setElapsedMs(Date.now() - start);
+      setElapsedMs(Math.max(0, Date.now() - startedMsRef.current));
     }, 250);
     return () => clearInterval(t);
-  }, [recording, paused, elapsedMs]);
+  }, [recording, paused]);
 
-  useEffect(() => {
-    if (!recording || paused) return;
-    let i = 0;
-    const t = setInterval(() => {
-      const next = MOCK_LIVE_PARTIALS[i % MOCK_LIVE_PARTIALS.length];
-      if (next) {
-        const speaker = speakerById.get(next.speaker) ?? FALLBACK_SPEAKER;
-        setPartials((prev) => [
-          ...prev,
-          {
-            ts: Date.now(),
-            speaker,
-            text: next.text,
-            isFinal: i % 3 === 2,
-          },
-        ]);
-      }
-      i += 1;
-      requestAnimationFrame(() => {
-        scrollRef.current?.scrollToEnd({ animated: true });
+  async function stopAndOpenDetail(): Promise<void> {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await transcriptionRef.current?.stop();
+      transcriptionRef.current = null;
+      levelSubscriptionRef.current?.remove();
+      levelSubscriptionRef.current = null;
+      const audio = await stopVoiceRecording();
+      setRecording(false);
+      const db = await openDb();
+      const detail = await createRecordingCapture({
+        title,
+        audioUri: audio.uri,
+        durationMs: audio.durationMs ?? elapsedMs,
+        startedAt: startedAtRef.current,
+        languageHints: language === 'auto' ? [] : [language],
+        partials: partialsRef.current,
+        transcriptText: transcriptTextRef.current,
+        partialProvider: partialProviderRef.current,
+        waveformSamples: waveformRef.current,
+      }, {
+        db,
+        sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
       });
-    }, 950);
-    return () => clearInterval(t);
-  }, [recording, paused, speakerById]);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void runSyncTick({ db });
+      router.replace(`/recording/${detail.meta.id}`);
+    } catch (stopError) {
+      setError(stopError instanceof Error ? stopError.message : String(stopError));
+      setSaving(false);
+    }
+  }
 
-  function stopAndOpenDetail(): void {
-    setRecording(false);
-    // mock：跳转到已完成的录音详情，演示完整闭环
-    router.replace('/recording/mob_cap_rec_001');
+  async function togglePause(): Promise<void> {
+    try {
+      if (paused) {
+        await resumeVoiceRecording();
+        setPaused(false);
+      } else {
+        await pauseVoiceRecording();
+        setPaused(true);
+      }
+    } catch (pauseError) {
+      setError(pauseError instanceof Error ? pauseError.message : String(pauseError));
+    }
+  }
+
+  async function cancelAndBack(): Promise<void> {
+    await transcriptionRef.current?.stop();
+    transcriptionRef.current = null;
+    levelSubscriptionRef.current?.remove();
+    levelSubscriptionRef.current = null;
+    await cancelVoiceRecording().catch(() => undefined);
+    router.back();
   }
 
   return (
@@ -114,27 +218,34 @@ export function RecordingComposerScreen(): React.ReactElement {
       <View style={styles.topBar}>
         <Pressable
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => {
+            void cancelAndBack();
+          }}
           style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
         >
           <Text style={styles.iconBtnText}>✕</Text>
         </Pressable>
-        <SegmentedTabs
-          activeKey={tab}
-          onSelect={(key) => setTab(key as ComposerTab)}
-          items={[
-            { key: 'source', label: '来源' },
-            { key: 'transcript', label: '转写' },
-            { key: 'mark', label: '标记' },
-          ]}
-          compact
-        />
+        <View style={styles.topTabs}>
+          <SegmentedTabs
+            activeKey={tab}
+            onSelect={(key) => setTab(key as ComposerTab)}
+            items={[
+              { key: 'source', label: '来源' },
+              { key: 'transcript', label: '转写' },
+              { key: 'mark', label: '标记' },
+            ]}
+            compact
+          />
+        </View>
         <Pressable
           accessibilityRole="button"
-          onPress={stopAndOpenDetail}
+          disabled={!recording || saving}
+          onPress={() => {
+            void stopAndOpenDetail();
+          }}
           style={({ pressed }) => [styles.doneBtn, pressed && styles.pressed]}
         >
-          <Text style={styles.doneText}>完成</Text>
+          <Text style={styles.doneText}>{saving ? '保存中' : '完成'}</Text>
         </Pressable>
       </View>
 
@@ -155,12 +266,18 @@ export function RecordingComposerScreen(): React.ReactElement {
           <View style={styles.recordingPill}>
             <View style={styles.recordingDot} />
             <Text style={styles.recordingText}>
-              {paused ? '已暂停 · 录音保存中' : '正在录音 · 实时转写中'}
+               {recording
+                 ? paused
+                   ? '已暂停'
+                   : partialProviderRef.current === 'ios-speech'
+                     ? '正在录音 · 实时转写中'
+                     : '正在录音 · 转写不可用'
+                 : '正在启动录音'}
             </Text>
           </View>
         </View>
         <Waveform
-          seed="composer"
+          samples={waveformSamples}
           height={88}
           bars={72}
           progress={1}
@@ -173,7 +290,9 @@ export function RecordingComposerScreen(): React.ReactElement {
           />
           <Pressable
             accessibilityRole="button"
-            onPress={() => setPaused((v) => !v)}
+            onPress={() => {
+              void togglePause();
+            }}
             style={({ pressed }) => [
               styles.bigBtn,
               paused && styles.bigBtnResume,
@@ -186,9 +305,23 @@ export function RecordingComposerScreen(): React.ReactElement {
           <ControlButton label="1×" onPress={() => undefined} />
           <ControlButton label="✏︎" onPress={() => undefined} />
         </View>
+        <Pressable
+          accessibilityRole="button"
+          disabled={!recording || saving}
+          onPress={() => {
+            void stopAndOpenDetail();
+          }}
+          style={({ pressed }) => [
+            styles.stopBtn,
+            (!recording || saving) && styles.stopBtnDisabled,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.stopBtnText}>{saving ? '正在保存…' : '结束并保存录音'}</Text>
+        </Pressable>
         <View style={styles.optionRow}>
           <View style={styles.optionPills}>
-            {MOCK_LANGUAGES.slice(0, 4).map((lang) => {
+            {LANGUAGES.map((lang) => {
               const active = lang.code === language;
               return (
                 <Pressable
@@ -237,8 +370,13 @@ export function RecordingComposerScreen(): React.ReactElement {
             <Text style={styles.outlineItemMuted}>—— 录音继续后将自动补全 ——</Text>
           </View>
           <Text style={styles.sectionLabel}>转写</Text>
-          {partials.length === 0 ? (
-            <Text style={styles.placeholder}>实时转写正在准备……</Text>
+           {error ? <Text style={styles.error}>{error}</Text> : null}
+           {partials.length === 0 ? (
+             <Text style={styles.placeholder}>
+               {partialProviderRef.current === 'unavailable'
+                 ? '实时转写不可用时仍会保存原始录音。'
+                 : '实时转写正在准备……'}
+             </Text>
           ) : null}
           {partials.map((line, idx) => (
             <View key={idx} style={styles.partialRow}>
@@ -249,7 +387,7 @@ export function RecordingComposerScreen(): React.ReactElement {
                     {line.speaker.label}
                   </Text>
                   <Text style={styles.partialTs}>
-                    {formatTimestamp(idx * 950)}
+                     {formatTimestamp(line.ts)}
                   </Text>
                   {!line.isFinal ? (
                     <Text style={styles.partialPending}>partial</Text>
@@ -277,7 +415,7 @@ export function RecordingComposerScreen(): React.ReactElement {
         <View style={styles.placeholderCard}>
           <Text style={styles.placeholderTitle}>标记</Text>
           <Text style={styles.placeholderBody}>
-            录音中长按某段转写可一键加书签（mock 占位）。
+            录音中长按某段转写可一键加书签（后续会写入标记文件）。
           </Text>
         </View>
       ) : null}
@@ -316,6 +454,9 @@ const styles = StyleSheet.create({
     gap: 10,
     justifyContent: 'space-between',
   },
+  topTabs: {
+    flex: 1,
+  },
   iconBtn: {
     alignItems: 'center',
     backgroundColor: colors.bgRaised,
@@ -333,7 +474,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: colors.ink,
     borderRadius: radius.pill,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingVertical: 10,
   },
   doneText: {
@@ -448,6 +589,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 14,
   },
+  stopBtn: {
+    alignItems: 'center',
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    marginTop: 14,
+    paddingVertical: 13,
+  },
+  stopBtnDisabled: {
+    opacity: 0.45,
+  },
+  stopBtnText: {
+    color: colors.bg,
+    fontSize: 14,
+    fontWeight: '800',
+  },
   optionPills: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -530,6 +686,13 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     paddingVertical: 24,
+    textAlign: 'center',
+  },
+  error: {
+    color: colors.danger,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 10,
     textAlign: 'center',
   },
   partialRow: {

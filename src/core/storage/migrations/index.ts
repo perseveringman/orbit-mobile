@@ -13,13 +13,14 @@
 import { CREATE_DEVICE_INFO, SCHEMA_VERSION } from '../schema';
 import type { SQLiteDatabaseLike } from '../sqlite';
 import * as initial from './001_initial';
+import * as recordings from './002_recordings';
 
 export interface Migration {
   version: number;
   up(db: SQLiteDatabaseLike): Promise<void>;
 }
 
-const MIGRATIONS: readonly Migration[] = [initial];
+const MIGRATIONS: readonly Migration[] = [initial, recordings];
 
 export async function runMigrations(
   db: SQLiteDatabaseLike,

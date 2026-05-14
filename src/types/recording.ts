@@ -3,8 +3,7 @@
  *
  * 设计来源：docs/plans/2026-05-13-long-recording-and-transcript.md
  *
- * 这一层只描述"领域形状"，不绑定持久层（SQLite 表后续在 M9.1 落地，
- * 当前阶段先以 mock 数据驱动 UI）。
+ * 这一层只描述"领域形状"，持久化由 recordings 表 + capture 附件文件承载。
  */
 
 export type RecordingPartialState = 'idle' | 'live' | 'finished' | 'failed';
@@ -91,7 +90,7 @@ export interface RecordingTemplate {
   name: string;
   author: string;
   description: string;
-  uses: number;            // mock 热度
+  uses: number;            // 内置模板使用量；本地模板默认为 0
   accent: string;          // 卡片配色
 }
 
@@ -111,6 +110,7 @@ export interface RecordingMeta {
   participants?: string[];
   location?: string;
   tags?: string[];
+  waveform_samples?: number[];
 }
 
 export type DerivativeMap = {
@@ -124,6 +124,9 @@ export type DerivativeMap = {
 
 export interface RecordingDetail {
   meta: RecordingMeta;
+  audio_uri?: string;
+  audio_exists?: boolean;
+  waveform_samples: number[];
   outline: OutlineItem[];
   transcript: FinalTranscript;
   derivatives: DerivativeMap;

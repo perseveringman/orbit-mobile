@@ -9,7 +9,7 @@
  *
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const CREATE_CAPTURES = `
 CREATE TABLE IF NOT EXISTS captures (
@@ -81,3 +81,30 @@ CREATE TABLE IF NOT EXISTS device_info (
   value                TEXT NOT NULL,
   updated_at           TEXT NOT NULL
 );`;
+
+export const CREATE_RECORDINGS = `
+CREATE TABLE IF NOT EXISTS recordings (
+  id                   TEXT PRIMARY KEY,
+  title                TEXT NOT NULL,
+  duration_ms          INTEGER NOT NULL,
+  channels             INTEGER NOT NULL DEFAULT 1,
+  sample_rate          INTEGER NOT NULL DEFAULT 48000,
+  language_hints       TEXT,
+  speaker_count        INTEGER,
+  partial_state        TEXT NOT NULL DEFAULT 'idle',
+  final_state          TEXT NOT NULL DEFAULT 'pending',
+  partial_provider     TEXT NOT NULL DEFAULT 'unavailable',
+  final_provider       TEXT,
+  final_attempts       INTEGER NOT NULL DEFAULT 0,
+  final_last_error     TEXT,
+  final_done_at        TEXT,
+  created_at           TEXT NOT NULL,
+  FOREIGN KEY (id) REFERENCES captures(id) ON DELETE CASCADE
+);`;
+
+export const CREATE_RECORDINGS_INDEXES: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_recordings_final_state
+     ON recordings(final_state);`,
+  `CREATE INDEX IF NOT EXISTS idx_recordings_created
+     ON recordings(created_at DESC);`,
+];

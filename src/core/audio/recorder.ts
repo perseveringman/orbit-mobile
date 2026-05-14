@@ -1,58 +1,72 @@
-import { Audio } from 'expo-av';
+import {
+  addAudioLevelListener,
+  pauseCapture,
+  resumeCapture,
+  startCapture,
+  stopCapture,
+} from 'orbit-speech-recognition';
+import type { AudioLevelEvent } from 'orbit-speech-recognition';
+import { prepareAudioPlayback } from './playback';
 
 export interface VoiceRecordingResult {
   uri: string;
   durationMs: number | null;
 }
 
-let activeRecording: Audio.Recording | null = null;
-let startedAt: number | null = null;
+let activeRecording = false;
 
 export async function startVoiceRecording(): Promise<void> {
-  if (activeRecording !== null) {
+  if (activeRecording) {
     throw new Error('audio.recording_already_active');
   }
-  const permission = await Audio.requestPermissionsAsync();
-  if (!permission.granted) {
-    throw new Error('audio.permission_denied');
+  const availability = await startCapture();
+  if (!availability.available) {
+    throw new Error(`audio.speech_capture_unavailable:${availability.reason ?? 'unknown'}`);
   }
-  await Audio.setAudioModeAsync({
-    allowsRecordingIOS: true,
-    playsInSilentModeIOS: true,
-  });
-  const recording = new Audio.Recording();
-  await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-  await recording.startAsync();
-  activeRecording = recording;
-  startedAt = Date.now();
+  activeRecording = true;
+}
+
+export function isVoiceRecordingActive(): boolean {
+  return activeRecording;
+}
+
+export function addVoiceRecordingLevelListener(
+  listener: (event: AudioLevelEvent) => void,
+): { remove(): void } {
+  return addAudioLevelListener(listener);
 }
 
 export async function stopVoiceRecording(): Promise<VoiceRecordingResult> {
-  const recording = activeRecording;
-  if (recording === null) {
+  if (!activeRecording) {
     throw new Error('audio.no_active_recording');
   }
-  activeRecording = null;
-  const started = startedAt;
-  startedAt = null;
-  await recording.stopAndUnloadAsync();
-  const uri = recording.getURI();
-  if (!uri) {
-    throw new Error('audio.recording_uri_missing');
-  }
-  await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+  activeRecording = false;
+  const result = await stopCapture();
+  await prepareAudioPlayback();
   return {
-    uri,
-    durationMs: started === null ? null : Date.now() - started,
+    uri: result.uri,
+    durationMs: result.durationMs,
   };
 }
 
-export async function cancelVoiceRecording(): Promise<void> {
-  const recording = activeRecording;
-  activeRecording = null;
-  startedAt = null;
-  if (recording !== null) {
-    await recording.stopAndUnloadAsync();
+export async function pauseVoiceRecording(): Promise<void> {
+  if (!activeRecording) {
+    throw new Error('audio.no_active_recording');
   }
-  await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+  await pauseCapture();
+}
+
+export async function resumeVoiceRecording(): Promise<void> {
+  if (!activeRecording) {
+    throw new Error('audio.no_active_recording');
+  }
+  await resumeCapture();
+}
+
+export async function cancelVoiceRecording(): Promise<void> {
+  if (activeRecording) {
+    activeRecording = false;
+    await stopCapture();
+  }
+  await prepareAudioPlayback();
 }

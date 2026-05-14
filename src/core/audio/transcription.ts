@@ -5,6 +5,7 @@ import {
   start,
   stop,
 } from 'orbit-speech-recognition';
+import { isVoiceRecordingActive } from './recorder';
 
 export interface LiveTranscriptionState {
   transcript: string;
@@ -16,6 +17,7 @@ export interface LiveTranscriptionState {
 export interface LiveTranscriptionSession {
   source: 'ios-speech' | 'unavailable';
   available: boolean;
+  reason?: string;
   stop(): Promise<void>;
 }
 
@@ -42,45 +44,62 @@ export async function startLiveTranscription(
   onTranscript: (state: LiveTranscriptionState) => void,
   onError?: (error: unknown) => void,
 ): Promise<LiveTranscriptionSession> {
-  let transcript = '';
   try {
+    if (isVoiceRecordingActive()) {
+      return subscribeToNativeTranscription(onTranscript, onError, false);
+    }
+
+    const currentAvailability = await getLiveTranscriptionAvailability();
+    if (!currentAvailability.available) {
+      return unavailableSession(currentAvailability.reason);
+    }
+
     const availability = await start();
     if (!availability.available) {
       return unavailableSession(availability.reason);
     }
 
-    const transcriptionSubscription = addTranscriptionListener((event) => {
-      transcript = event.transcript;
-      onTranscript({
-        transcript,
-        available: true,
-        source: event.source,
-      });
-    });
-    const errorSubscription = addTranscriptionErrorListener((event) => {
-      onError?.(new Error(event.message));
-    });
-
-    return {
-      source: 'ios-speech',
-      available: true,
-      async stop() {
-        transcriptionSubscription.remove();
-        errorSubscription.remove();
-        await stop();
-      },
-    };
+    return subscribeToNativeTranscription(onTranscript, onError, true);
   } catch (error) {
     onError?.(error);
     return unavailableSession(error instanceof Error ? error.message : String(error));
   }
 }
 
+function subscribeToNativeTranscription(
+  onTranscript: (state: LiveTranscriptionState) => void,
+  onError: ((error: unknown) => void) | undefined,
+  stopNativeOnEnd: boolean,
+): LiveTranscriptionSession {
+  const transcriptionSubscription = addTranscriptionListener((event) => {
+    onTranscript({
+      transcript: event.transcript,
+      available: true,
+      source: event.source,
+    });
+  });
+  const errorSubscription = addTranscriptionErrorListener((event) => {
+    onError?.(new Error(event.message));
+  });
+
+  return {
+    source: 'ios-speech',
+    available: true,
+    async stop() {
+      transcriptionSubscription.remove();
+      errorSubscription.remove();
+      if (stopNativeOnEnd) {
+        await stop();
+      }
+    },
+  };
+}
+
 function unavailableSession(reason: string | undefined): LiveTranscriptionSession {
-  void reason;
   return {
     source: 'unavailable',
     available: false,
+    reason,
     stop() {
       return Promise.resolve();
     },

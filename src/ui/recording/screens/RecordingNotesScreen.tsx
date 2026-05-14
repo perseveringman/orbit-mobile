@@ -10,7 +10,7 @@
  */
 
 import { Link, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -19,10 +19,8 @@ import {
   View,
 } from 'react-native';
 
-import {
-  generateMockDerivative,
-  getMockRecording,
-} from '../../../core/recording/mock-data';
+import { generateLocalDerivative } from '../../../core/recording/templates';
+import { loadRecordingDetail } from '../../../core/recording/recording-service';
 import type {
   DerivativePayload,
   RecordingDetail,
@@ -41,16 +39,35 @@ type ActiveTab = string;
 
 export function RecordingNotesScreen({ id }: Props): React.ReactElement {
   const router = useRouter();
-  const detail = getMockRecording(id);
+  const [detail, setDetail] = useState<RecordingDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [tab, setTab] = useState<ActiveTab>('summary');
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [customs, setCustoms] = useState<DerivativePayload[]>(
-    detail?.derivatives.custom ?? [],
-  );
-  const [todoState, setTodoState] = useState<Record<string, boolean>>(() => {
-    const items = detail?.derivatives.todos?.items ?? [];
-    return Object.fromEntries(items.map((item) => [item.id, item.done ?? false]));
-  });
+  const [customs, setCustoms] = useState<DerivativePayload[]>([]);
+  const [todoState, setTodoState] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    loadRecordingDetail(id)
+      .then((loaded) => {
+        if (cancelled) return;
+        setDetail(loaded);
+        setCustoms(loaded?.derivatives.custom ?? []);
+        const items = loaded?.derivatives.todos?.items ?? [];
+        setTodoState(Object.fromEntries(items.map((item) => [item.id, item.done ?? false])));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const items = useMemo(() => {
     if (!detail) return [];
@@ -67,10 +84,18 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
     return [...builtin, ...customTabs, { key: 'plus', label: '＋' }];
   }, [customs, detail]);
 
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Text style={styles.notFound}>正在读取本机录音…</Text>
+      </View>
+    );
+  }
+
   if (!detail) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.notFound}>找不到这条录音</Text>
+        <Text style={styles.notFound}>{loadError ?? '找不到这条录音'}</Text>
       </View>
     );
   }
@@ -84,7 +109,8 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
   }
 
   function applyTemplate(template: RecordingTemplate): void {
-    const generated = generateMockDerivative(template);
+    if (!detail) return;
+    const generated = generateLocalDerivative(template, detail);
     setCustoms((prev) => [...prev.filter((c) => c.template_id !== template.id), generated]);
     setTab(`custom:${template.id}`);
     setSheetOpen(false);
@@ -164,7 +190,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
 
         <View style={styles.footerNote}>
           <Text style={styles.footerNoteText}>
-            笔记由 {detail.derivatives.summary?.provider ?? 'mock-final'} 生成 ·
+             笔记由 {detail.derivatives.summary?.provider ?? 'local'} 生成 ·
             可在录音详情页对照原音校对
           </Text>
           <Link

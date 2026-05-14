@@ -36,6 +36,8 @@ export function buildManifest(input: BuildManifestInput): CaptureManifest {
     content: input.content,
     tags: input.tags ?? [],
     attachments: input.attachments ?? [],
+    recording: input.recording,
+    derivatives: input.derivatives,
     context: {
       clipboard_hint: input.clipboardHint ?? null,
       share_context: input.shareContext ?? null,
@@ -78,7 +80,7 @@ export function validateManifest(manifest: CaptureManifest): void {
 }
 
 function isCaptureKind(value: string): value is CaptureKind {
-  return ['thought', 'voice', 'photo', 'share', 'mixed'].includes(value);
+  return ['thought', 'voice', 'photo', 'share', 'mixed', 'recording'].includes(value);
 }
 
 export function serializeManifest(manifest: CaptureManifest): string {

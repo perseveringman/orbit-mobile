@@ -1,7 +1,7 @@
 /**
- * Waveform.tsx — 静态/简动波形条（mock）
+ * Waveform.tsx — 轻量波形条
  *
- * 真实实现会从 audio buffer 抽 RMS 包络。这里用稳定伪随机生成 + 进度填充。
+ * 使用录音时从麦克风 buffer 抽出的 RMS 包络渲染。
  */
 
 import { useMemo } from 'react';
@@ -18,7 +18,9 @@ interface WaveformProps {
   bars?: number;
   /** 高度（控件外框） */
   height?: number;
-  /** 用于伪随机种子，保证同一条录音波形稳定 */
+  /** 真实 RMS/peak 包络，取值 0..1 */
+  samples?: number[];
+  /** @deprecated 旧调用保留兼容；不再用于生成假波形 */
   seed?: string;
   variant?: 'long' | 'compact';
 }
@@ -28,10 +30,10 @@ export function Waveform({
   active = false,
   bars = 64,
   height = 72,
-  seed = 'orbit',
+  samples = [],
   variant = 'long',
 }: WaveformProps): React.ReactElement {
-  const heights = useMemo(() => generateBars(seed, bars, active), [seed, bars, active]);
+  const heights = useMemo(() => sampleBars(samples, bars), [samples, bars]);
   const filledIndex = Math.round(progress * (bars - 1));
 
   return (
@@ -66,25 +68,26 @@ export function Waveform({
   );
 }
 
-function generateBars(seed: string, count: number, active: boolean): number[] {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+function sampleBars(samples: number[], count: number): number[] {
+  if (samples.length === 0) {
+    return Array.from({ length: count }, () => 0.04);
   }
   const out: number[] = [];
   for (let i = 0; i < count; i += 1) {
-    hash = (hash * 1103515245 + 12345) & 0x7fffffff;
-    const base = (hash % 1000) / 1000;
-    // 让波形中段更高一点，模拟会议/讲话能量
-    const env = 0.4 + 0.6 * Math.sin((Math.PI * i) / count);
-    let value = 0.25 + base * 0.75 * env;
-    if (active && i > count - 8) {
-      // 录音中尾部"正在产生"，再放大一点
-      value = Math.min(1, value + 0.15);
+    const start = Math.floor((i * samples.length) / count);
+    const end = Math.max(start + 1, Math.floor(((i + 1) * samples.length) / count));
+    let peak = 0;
+    for (let j = start; j < end; j += 1) {
+      peak = Math.max(peak, normalizeSample(samples[j] ?? 0));
     }
-    out.push(value);
+    out.push(Math.max(0.04, Math.min(1, peak)));
   }
   return out;
+}
+
+function normalizeSample(sample: number): number {
+  if (!Number.isFinite(sample)) return 0;
+  return Math.max(0, Math.min(1, sample));
 }
 
 const styles = StyleSheet.create({
@@ -95,7 +98,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    gap: 3,
+    justifyContent: 'space-between',
+    overflow: 'hidden',
     paddingHorizontal: 12,
   },
   compact: {
