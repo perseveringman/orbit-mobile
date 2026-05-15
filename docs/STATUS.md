@@ -3,7 +3,7 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-15（DeepSeek AI notes + mobile Notes/Timeline ingest）
+**Last updated**: 2026-05-16（Capture composer interaction polish）
 **Last updater**: Codex
 **Current milestone**: **M0-M9 — local code complete; DeepSeek AI notes implemented; simulator build passed; device validation pending**
 **Next milestone**: 真机/iCloud/TestFlight 验收 + final transcription / diarization provider 选择
@@ -48,10 +48,11 @@ TestFlight 前优先验收：
 - 2026-05-15 已刷新 mobile → `/Users/ryanbzhou/Developer/new-orbit` 的入站链路：Mac 端 schema v1 现在支持 `recording`、`transcript` / `transcript-partial` / `derivative` artifact、附件逐文件 sha256 校验、直接 materialize Notes、发布 `note.created` Timeline、ACK v2、重复 ACK 幂等处理，以及成功重试后清理旧 `failed/<id>`。DeepSeek 派生笔记默认进入 Note Workbench / Synthesis，不写死进 Note 正文。
 - M5/M6 已把附件纳入同一五阶段原子协议：语音 `.m4a` 和图片都会进入 `captures/<id>/` manifest attachments。
 - M5/M6 媒体保存现在会在写 SQLite 前复写并验证最终 capture 目录的 `manifest.json`、sha256 和附件；不完整时不会显示保存成功，既有坏记录会在启动 reconcile 中标为 `conflicted`。
-- Capture 主输入页的底部工具条现在会跟随键盘上移，并在键盘打开时显示“收起”按钮，避免被键盘遮挡且无法 dismiss。
+- Capture 主输入页现在是统一 composer：底部工具条全部改为图标，短语音是“按住转文字”并以语音附件 chip 留在 composer；图片选择支持多选并进入横向预览，不会立刻保存；文字、图片、语音可以一起保存为同一条 mixed capture。
+- Capture 主输入页的 composer 会跟随键盘上移，并在键盘打开时把 `#` 快捷入口切换为收起键盘图标，避免被键盘遮挡且无法 dismiss。
 - 最近列表和详情页已改为用户友好的 Capture 展示：按文字/图片/语音/混合类型渲染卡片，图片显示缩略图/大图，语音可播放，同步技术记录默认折叠。
 - 当前语音实时转写通过本地 native module `orbit-speech-recognition` 接 Apple Speech framework；转写失败不影响原始 `.m4a` 保存。
-- M6 图片入口使用 ActionSheet，相册/拍照统一为 `MediaPicker`；2026-05-14 起图片经本地 native module `orbit-image-tools` 使用 iOS `UIImage` 压缩/缩放；2026-05-15 起设置页提供“总是压缩 / 仅 Wi-Fi 原图 / 总是原图”策略，默认无损保留原图，不上传到外部服务。
+- M6 图片入口使用 ActionSheet，相册/拍照统一为 `MediaPicker`；2026-05-14 起图片经本地 native module `orbit-image-tools` 使用 iOS `UIImage` 压缩/缩放；2026-05-15 起设置页提供“总是压缩 / 仅 Wi-Fi 原图 / 总是原图”策略，默认无损保留原图，不上传到外部服务；2026-05-16 起主输入页选图只加入 composer 预览，用户可继续补文字后一次保存。
 - `sync_events.gc({ keepPerCapture })` 已实现窗口函数裁剪；全局同步状态改为 `useSyncStatus()` 聚合并 5s 刷新。
 - 详情页现在对 `failed` / `conflicted` capture 提供手动“重新同步”，会把状态重置为 `pending` 并立即跑一次 SyncWorker；设置页提供 iCloud 状态、sync state 计数、手动同步、手动自愈和“保留原图”开关。
 - M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`；2026-05-14 起主 app 导入是逐条容错、幂等的，失败条目会带 `.failed.json` 移入 `share-inbox-failed/`，URL 分享会尝试通过 `LinkPresentation` 补标题。
