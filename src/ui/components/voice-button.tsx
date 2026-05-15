@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 
 import {
   startLiveTranscription,
@@ -8,6 +8,7 @@ import {
 } from '../../core/audio/transcription';
 import { startVoiceRecording, stopVoiceRecording } from '../../core/audio/recorder';
 import type { VoiceRecordingResult } from '../../core/audio/recorder';
+import { ComposerIcon } from './composer-icons';
 
 interface VoiceButtonProps {
   disabled?: boolean;
@@ -64,9 +65,15 @@ export function VoiceButton({
 
   return (
     <Pressable
+      accessibilityLabel="按住转文字"
       accessibilityRole="button"
       disabled={disabled}
-      style={[styles.button, recording && styles.recording, disabled && styles.disabled]}
+      style={({ pressed }) => [
+        styles.button,
+        recording && styles.recording,
+        disabled && styles.disabled,
+        pressed && !disabled && styles.pressed,
+      ]}
       onPressIn={() => {
         void begin();
       }}
@@ -74,29 +81,30 @@ export function VoiceButton({
         void end();
       }}
     >
-      <Text style={styles.text}>{recording ? '松开保存' : '按住说话'}</Text>
+      <ComposerIcon name="mic" color={recording ? '#dc2626' : '#0f172a'} size={22} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
     borderColor: '#cbd5e1',
-    borderRadius: 999,
+    borderRadius: 14,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
   },
   recording: {
-    backgroundColor: '#fee2e2',
+    backgroundColor: '#fff1f2',
     borderColor: '#ef4444',
   },
   disabled: {
     opacity: 0.35,
   },
-  text: {
-    color: '#111827',
-    fontSize: 13,
-    fontWeight: '700',
+  pressed: {
+    transform: [{ scale: 0.96 }],
   },
 });

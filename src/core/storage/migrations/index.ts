@@ -15,13 +15,14 @@ import type { SQLiteDatabaseLike } from '../sqlite';
 import * as initial from './001_initial';
 import * as recordings from './002_recordings';
 import * as recordingAnnotations from './003_recording_annotations';
+import * as aiTasks from './004_ai_tasks';
 
 export interface Migration {
   version: number;
   up(db: SQLiteDatabaseLike): Promise<void>;
 }
 
-const MIGRATIONS: readonly Migration[] = [initial, recordings, recordingAnnotations];
+const MIGRATIONS: readonly Migration[] = [initial, recordings, recordingAnnotations, aiTasks];
 
 export async function runMigrations(
   db: SQLiteDatabaseLike,

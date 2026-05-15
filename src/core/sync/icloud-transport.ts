@@ -2,8 +2,15 @@ import type { CaptureRow } from '../../types/capture';
 import * as iCloudBridge from '../../native/icloud-bridge';
 
 export interface AckInfo {
+  schema_version?: 1 | 2;
   acked_at?: string;
+  artifact_kind?: string;
   vault_path?: string;
+  note_id?: string;
+  note_path?: string;
+  timeline_event_id?: string;
+  inbox_item_id?: string;
+  vault_note_path?: string;
   [key: string]: unknown;
 }
 
@@ -23,6 +30,7 @@ export interface UploadResult {
 export interface ICloudTransport {
   getContainerStatus(): Promise<iCloudBridge.ICloudContainerStatus>;
   uploadCapture(capture: CaptureRow): Promise<UploadResult>;
+  clearFailure(captureId: string): Promise<void>;
   readAck(captureId: string): Promise<AckInfo | null>;
   readFailure(captureId: string): Promise<RemoteFailureInfo | null>;
 }
@@ -50,6 +58,10 @@ export function failedInfoPath(captureId: string): string {
   return `failed/${captureId}/.failed.json`;
 }
 
+export function failedDirPath(captureId: string): string {
+  return `failed/${captureId}`;
+}
+
 export class NativeICloudTransport implements ICloudTransport {
   async getContainerStatus(): Promise<iCloudBridge.ICloudContainerStatus> {
     return iCloudBridge.getContainerStatus();
@@ -62,6 +74,10 @@ export class NativeICloudTransport implements ICloudTransport {
       remotePath,
       uploaded: status.exists && !status.error,
     };
+  }
+
+  async clearFailure(captureId: string): Promise<void> {
+    await iCloudBridge.deleteRemotePath(failedDirPath(captureId));
   }
 
   async readAck(captureId: string): Promise<AckInfo | null> {

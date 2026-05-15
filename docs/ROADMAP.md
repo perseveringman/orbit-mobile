@@ -139,7 +139,7 @@
 
 - [x] 在 Orbit 仓库新开 PR：`src/main/capture/mobile_inbound/`
   - `watcher.ts` — chokidar 监听 iCloud inbox
-  - `ingest.ts` — 解析 manifest → 调 ThoughtService
+  - `ingest.ts` — 解析 manifest → materialize Note + `note.created`
   - `attachments.ts` — 附件复制到 `<vault>/.orbit/capture/attachments/`
   - `config.ts` — iCloud 路径探测
 - [x] Mac 端 ingest 成功 → 移动到 `processed/<id>/`
@@ -150,9 +150,9 @@
 - [ ] Mac 端 Dashboard 加卡片"今日来自手机 N 条"（MVP 端到端闭环后补 UI 卡片）
 
 **验收**：
-- iPhone 保存 → 自动出现在 Mac Inbox Thoughts
+- iPhone 保存 → 自动出现在 Mac Notes，并在 Timeline 同日展示
 - 全流程 10 秒内完成（正常网络）
-- iOS 端看到 ✓ 已接收
+- iOS 端看到 ✓ 已到 Notes
 
 ---
 
@@ -165,7 +165,7 @@
 - [x] `src/core/audio/recorder.ts`
 - [x] `src/core/audio/transcription.ts`
 - [x] `src/ui/components/voice-button.tsx` — 按压录音交互
-- [ ] 录音中 app 被杀 → 下次启动提示恢复（需真机验证 iOS 临时录音文件保留行为）
+- [x] 录音中 app 被杀 → 下次启动提示恢复（native sidecar + 残留 CAF/M4A 恢复；仍需真机杀进程验证）
 - [x] manifest 带 `transcription_source`（手动文本时为 `manual`）
 - [x] 原始 `.m4a` 附件永久保留（除非用户关闭）
 
@@ -173,7 +173,7 @@
 - 按住按钮开始录音 + 实时出现文字
 - 松开立即可编辑文字或继续录
 - 录音中来电被打断 → 自动保存已录部分
-- Mac 端收到的 Thought 含原始录音附件链接
+- Mac 端收到的 Note 含原始录音附件链接；AI 派生结果只进 Note Workbench，等待用户接受
 
 ---
 
@@ -189,7 +189,7 @@
 - [x] `src/ui/components/media-picker.tsx`（实现为 `src/ui/components/image-button.tsx`）
 - [x] 多图支持（UI + manifest）
 - [x] 原图可选保留（当前默认保留 picker 返回文件进入本地原子协议）
-- [ ] 用户设置："总是压缩" / "仅 Wi-Fi 原图" / "总是原图"（MVP 后设置项）
+- [x] 用户设置："总是压缩" / "仅 Wi-Fi 原图" / "总是原图"（本地策略已落库；Wi-Fi 模式写入附件 sync hint，iCloud 蜂窝传输仍受系统设置约束）
 
 **验收**：
 - 选图/拍照后立即出现在输入框上方预览
@@ -206,7 +206,7 @@
 - [x] 接收 URL / 文本 / 图片 / 多类型组合
 - [x] 最小 UI：预览 + "保存"
 - [x] 共享 App Group（Extension 写 `share-inbox/`，主 app 导入后走 SQLite + 文件系统原子协议）
-- [ ] 对 URL 自动抓取标题（若能）
+- [x] 对 URL 自动抓取标题（Share Extension 通过 LinkPresentation best effort）
 - [x] 保存后不弹回主 app（留在原 app）
 
 **验收**：
@@ -243,6 +243,8 @@
 - [x] Recording Composer 使用真实录音 + Apple Speech 可用时实时转写
 - [x] 录音列表 / 详情 / 笔记 / Ask 从 SQLite + capture 文件读取
 - [x] 未配置云端 provider 时使用本地 `local-live-transcript` / `local-heuristic`，不引入服务端
+- [x] DeepSeek V4 Flash（用户自持 Key）生成录音总结 / 决策 / 风险 / 待办 / 自定义模板 / Ask
+- [x] 录音异常退出恢复入口 + 录音中页面实时大纲/真实来源状态
 - [ ] 云端 final transcription provider 配置（用户自持 key）
 - [ ] diarization provider 接入
 - [ ] 真机后台/锁屏/来电中断验收

@@ -267,6 +267,7 @@ async function prepareAttachments(
       height: attachment.height,
       captured_at: attachment.captured_at,
       original_exif: attachment.original_exif,
+      sync_hint: attachment.sync_hint,
       schema: attachment.schema,
       derivative_kind: attachment.derivative_kind,
       template_id: attachment.template_id,

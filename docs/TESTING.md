@@ -127,8 +127,8 @@
 
 **真机 + 真机**（iPhone + Mac）：
 
-- [ ] iOS 保存一条文本 → Mac Orbit Inbox Thoughts 出现（< 1 分钟）
-- [ ] Mac ingest 成功后，iOS 端看到 ✓ 已接收
+- [ ] iOS 保存一条文本 → Mac Orbit Notes 出现，并在 Timeline 同日展示（< 1 分钟）
+- [ ] Mac ingest 成功后，iOS 端看到 ✓ 已到 Notes，ACK 内含 `note_path`
 - [ ] Mac 关闭时 iOS 保存 10 条 → Mac 启动后全部 ingest
 - [ ] 故意让 Mac 端写 sha256 错误 → iOS 自动重传
 - [ ] 两台 iOS 同时保存 → Mac 都收到，无冲突

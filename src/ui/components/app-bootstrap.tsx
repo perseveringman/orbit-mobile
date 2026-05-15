@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import { useEffect, useRef, useState } from 'react';
 import { AppState, StyleSheet, Text, View } from 'react-native';
 
+import { runAiWorkerTick } from '../../core/ai/worker';
 import { runReconcile } from '../../core/reconcile/reconcile-job';
 import { importShareInbox } from '../../core/share/share-inbox';
 import { openDb } from '../../core/storage/db';
@@ -28,6 +29,7 @@ export function AppBootstrap(): React.ReactElement | null {
           sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
         });
         await runReconcile({ db });
+        await runAiWorkerTick({ db }).catch(() => undefined);
         await writeWidgetSnapshot(db).catch(() => undefined);
         await runSyncTick({ db });
         setSnapshot({

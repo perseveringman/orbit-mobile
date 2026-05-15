@@ -12,6 +12,7 @@ public class OrbitSpeechRecognitionModule: Module {
   private var audioFile: AVAudioFile?
   private var captureCAFURL: URL?
   private var captureM4AURL: URL?
+  private var captureSidecarURL: URL?
   private var captureStartedAt: Date?
   private var captureSegmentStartedAt: Date?
   private var captureAccumulatedMs: Double = 0
@@ -66,14 +67,19 @@ public class OrbitSpeechRecognitionModule: Module {
       let baseName = "orbit-recording-\(UUID().uuidString)"
       let cafURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(baseName).caf")
       let m4aURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(baseName).m4a")
+      let sidecarURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("\(baseName).json")
+      let startedAt = Date()
       try? FileManager.default.removeItem(at: cafURL)
       try? FileManager.default.removeItem(at: m4aURL)
+      try? FileManager.default.removeItem(at: sidecarURL)
+      try self.writeCaptureSidecar(baseName: baseName, cafURL: cafURL, m4aURL: m4aURL, sidecarURL: sidecarURL, startedAt: startedAt)
 
       try self.startRecognition(recognizer: recognizer, captureURL: cafURL)
       self.captureCAFURL = cafURL
       self.captureM4AURL = m4aURL
-      self.captureStartedAt = Date()
-      self.captureSegmentStartedAt = Date()
+      self.captureSidecarURL = sidecarURL
+      self.captureStartedAt = startedAt
+      self.captureSegmentStartedAt = startedAt
       self.captureAccumulatedMs = 0
       self.isCapturePaused = false
       return ["available": true, "reason": NSNull()]
@@ -104,6 +110,9 @@ public class OrbitSpeechRecognitionModule: Module {
       try self.stopRecognition(cancelTask: false, deactivateSession: false)
       try await self.exportM4A(from: cafURL, to: m4aURL)
       try? FileManager.default.removeItem(at: cafURL)
+      if let sidecarURL = self.captureSidecarURL {
+        try? FileManager.default.removeItem(at: sidecarURL)
+      }
       try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
       self.clearCaptureState()
 
@@ -111,6 +120,18 @@ public class OrbitSpeechRecognitionModule: Module {
         "uri": m4aURL.absoluteString,
         "durationMs": durationMs
       ]
+    }
+
+    AsyncFunction("cancelCapture") { () throws -> Void in
+      try self.cancelActiveCapture()
+    }
+
+    AsyncFunction("recoverInterruptedCaptures") { () async throws -> [[String: Any]] in
+      return try await self.recoverInterruptedCaptureFiles()
+    }
+
+    AsyncFunction("discardRecoveredCapture") { (uri: String) throws -> Void in
+      try self.discardRecoveredCaptureFile(uri: uri)
     }
   }
 
@@ -236,6 +257,7 @@ public class OrbitSpeechRecognitionModule: Module {
   private func clearCaptureState() {
     captureCAFURL = nil
     captureM4AURL = nil
+    captureSidecarURL = nil
     captureStartedAt = nil
     captureSegmentStartedAt = nil
     captureAccumulatedMs = 0
@@ -341,6 +363,123 @@ public class OrbitSpeechRecognitionModule: Module {
       rms: min(1, sqrt(sumSquares / Double(sampleCount))),
       peak: min(1, Double(peak))
     )
+  }
+
+  private func cancelActiveCapture() throws {
+    let cafURL = captureCAFURL
+    let m4aURL = captureM4AURL
+    let sidecarURL = captureSidecarURL
+    try self.stopRecognition(cancelTask: true, deactivateSession: false)
+    if let cafURL {
+      try? FileManager.default.removeItem(at: cafURL)
+    }
+    if let m4aURL {
+      try? FileManager.default.removeItem(at: m4aURL)
+    }
+    if let sidecarURL {
+      try? FileManager.default.removeItem(at: sidecarURL)
+    }
+    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    self.clearCaptureState()
+  }
+
+  private func writeCaptureSidecar(baseName: String, cafURL: URL, m4aURL: URL, sidecarURL: URL, startedAt: Date) throws {
+    let payload: [String: Any] = [
+      "schema": "orbit.recoverable-recording@1",
+      "baseName": baseName,
+      "cafPath": cafURL.path,
+      "m4aPath": m4aURL.path,
+      "startedAt": ISO8601DateFormatter().string(from: startedAt)
+    ]
+    let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+    try data.write(to: sidecarURL, options: .atomic)
+  }
+
+  private func recoverInterruptedCaptureFiles() async throws -> [[String: Any]] {
+    let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    let files = try FileManager.default.contentsOfDirectory(
+      at: tmpURL,
+      includingPropertiesForKeys: [.contentModificationDateKey],
+      options: [.skipsHiddenFiles]
+    )
+    let sidecars = files
+      .filter { $0.lastPathComponent.hasPrefix("orbit-recording-") && $0.pathExtension == "json" }
+      .sorted { lhs, rhs in
+        let leftDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        let rightDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        return leftDate > rightDate
+      }
+
+    var recovered: [[String: Any]] = []
+    for sidecar in sidecars {
+      guard let metadata = readCaptureSidecar(sidecar) else {
+        try? FileManager.default.removeItem(at: sidecar)
+        continue
+      }
+      let cafURL = URL(fileURLWithPath: metadata.cafPath)
+      let m4aURL = URL(fileURLWithPath: metadata.m4aPath)
+      if !FileManager.default.fileExists(atPath: m4aURL.path), FileManager.default.fileExists(atPath: cafURL.path) {
+        do {
+          try await exportM4A(from: cafURL, to: m4aURL)
+        } catch {
+          continue
+        }
+      }
+      guard FileManager.default.fileExists(atPath: m4aURL.path) else {
+        try? FileManager.default.removeItem(at: sidecar)
+        continue
+      }
+      recovered.append([
+        "uri": m4aURL.absoluteString,
+        "durationMs": try await durationMs(for: m4aURL),
+        "startedAt": metadata.startedAt as Any,
+        "recoveredAt": ISO8601DateFormatter().string(from: Date())
+      ])
+    }
+    return recovered
+  }
+
+  private func discardRecoveredCaptureFile(uri: String) throws {
+    let m4aURL = fileURL(uri)
+    let baseName = m4aURL.deletingPathExtension().lastPathComponent
+    let dir = m4aURL.deletingLastPathComponent()
+    let cafURL = dir.appendingPathComponent("\(baseName).caf")
+    let sidecarURL = dir.appendingPathComponent("\(baseName).json")
+    try? FileManager.default.removeItem(at: m4aURL)
+    try? FileManager.default.removeItem(at: cafURL)
+    try? FileManager.default.removeItem(at: sidecarURL)
+  }
+
+  private func readCaptureSidecar(_ url: URL) -> (baseName: String, cafPath: String, m4aPath: String, startedAt: String?)? {
+    guard
+      let data = try? Data(contentsOf: url),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let payload = object as? [String: Any],
+      payload["schema"] as? String == "orbit.recoverable-recording@1",
+      let baseName = payload["baseName"] as? String,
+      let cafPath = payload["cafPath"] as? String,
+      let m4aPath = payload["m4aPath"] as? String
+    else {
+      return nil
+    }
+    return (baseName, cafPath, m4aPath, payload["startedAt"] as? String)
+  }
+
+  private func durationMs(for url: URL) async throws -> Int {
+    let asset = AVURLAsset(url: url)
+    let duration = try await asset.load(.duration)
+    let seconds = CMTimeGetSeconds(duration)
+    guard seconds.isFinite && !seconds.isNaN else {
+      return 0
+    }
+    return max(0, Int((seconds * 1000).rounded()))
+  }
+
+  private func fileURL(_ value: String) -> URL {
+    if let url = URL(string: value), url.isFileURL {
+      return url
+    }
+    return URL(fileURLWithPath: value)
   }
 
   private func reason(status: SFSpeechRecognizerAuthorizationStatus, recognizer: SFSpeechRecognizer?) -> String? {

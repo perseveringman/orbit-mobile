@@ -1,4 +1,5 @@
 import { createCapture } from '../capture/atomic-write';
+import { enqueueRecordingNotesAiTask } from '../ai/worker';
 import type { CaptureAttachment, CaptureManifest } from '../capture/types';
 import * as capturesRepo from '../storage/captures-repo';
 import * as recordingsRepo from '../storage/recordings-repo';
@@ -193,6 +194,7 @@ export async function createRecordingCapture(
   if (!detail) {
     throw new Error(`recording.create_missing_detail:${result.id}`);
   }
+  await enqueueRecordingNotesAiTask(db, result.id, { detail, fs }).catch(() => undefined);
   return detail;
 }
 

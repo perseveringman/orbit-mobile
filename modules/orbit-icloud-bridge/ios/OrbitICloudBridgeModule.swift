@@ -60,6 +60,16 @@ public class OrbitICloudBridgeModule: Module {
       }
       return try String(contentsOf: url, encoding: .utf8)
     }
+
+    AsyncFunction("deleteRemotePath") { (remotePath: String) throws -> Void in
+      guard let root = self.containerRoot() else {
+        return
+      }
+      let url = self.destinationURL(root: root, remotePath: remotePath)
+      if FileManager.default.fileExists(atPath: url.path) {
+        try FileManager.default.removeItem(at: url)
+      }
+    }
   }
 
   private func containerRoot() -> URL? {

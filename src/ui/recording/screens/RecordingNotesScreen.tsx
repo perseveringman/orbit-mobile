@@ -10,7 +10,7 @@
  */
 
 import { Link, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -19,10 +19,17 @@ import {
   View,
 } from 'react-native';
 
+import { getDeepSeekApiKey } from '../../../core/ai/api-key';
+import { DeepSeekClient } from '../../../core/ai/deepseek-client';
+import { generateCustomDerivative } from '../../../core/ai/recording-notes';
+import { enqueueRecordingNotesAiTask, runAiWorkerTick } from '../../../core/ai/worker';
 import { generateLocalDerivative } from '../../../core/recording/templates';
 import { loadRecordingDetail } from '../../../core/recording/recording-service';
 import { openDb } from '../../../core/storage/db';
+import * as aiTasksRepo from '../../../core/storage/ai-tasks-repo';
 import * as annotationsRepo from '../../../core/storage/recording-annotations-repo';
+import { loadAppSettings } from '../../../core/settings/app-settings';
+import type { AiTaskRow } from '../../../types/ai';
 import type {
   DerivativePayload,
   RecordingDetail,
@@ -48,32 +55,37 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [customs, setCustoms] = useState<DerivativePayload[]>([]);
   const [todoState, setTodoState] = useState<Record<string, boolean>>({});
+  const [aiTask, setAiTask] = useState<AiTaskRow | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    const loaded = await loadRecordingDetail(id);
+    setDetail(loaded);
+    const db = await openDb();
+    const rows = loaded
+      ? await annotationsRepo.listByRecording(db, loaded.meta.id)
+      : [];
+    const customAnnotations = rows
+      .filter((row) => row.kind === 'custom_derivative')
+      .map((row) => annotationsRepo.parsePayload<DerivativePayload>(row))
+      .filter((payload): payload is DerivativePayload => payload !== null);
+    setCustoms([...(loaded?.derivatives.custom ?? []), ...customAnnotations]);
+    const items = loaded?.derivatives.todos?.items ?? [];
+    const nextTodoState = Object.fromEntries(items.map((item) => [item.id, item.done ?? false]));
+    for (const row of rows.filter((item) => item.kind === 'todo_state')) {
+      if (row.target_id === null) continue;
+      const payload = annotationsRepo.parsePayload<{ done?: boolean }>(row);
+      nextTodoState[row.target_id] = payload?.done === true;
+    }
+    setTodoState(nextTodoState);
+    setAiTask(loaded ? await aiTasksRepo.getByCapture(db, loaded.meta.id) : null);
+    setLoading(false);
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    loadRecordingDetail(id)
-      .then(async (loaded) => {
-        if (cancelled) return;
-        setDetail(loaded);
-        const rows = loaded
-          ? await annotationsRepo.listByRecording(await openDb(), loaded.meta.id)
-          : [];
-        if (cancelled) return;
-        const customAnnotations = rows
-          .filter((row) => row.kind === 'custom_derivative')
-          .map((row) => annotationsRepo.parsePayload<DerivativePayload>(row))
-          .filter((payload): payload is DerivativePayload => payload !== null);
-        setCustoms([...(loaded?.derivatives.custom ?? []), ...customAnnotations]);
-        const items = loaded?.derivatives.todos?.items ?? [];
-        const nextTodoState = Object.fromEntries(items.map((item) => [item.id, item.done ?? false]));
-        for (const row of rows.filter((item) => item.kind === 'todo_state')) {
-          if (row.target_id === null) continue;
-          const payload = annotationsRepo.parsePayload<{ done?: boolean }>(row);
-          nextTodoState[row.target_id] = payload?.done === true;
-        }
-        setTodoState(nextTodoState);
-      })
+    reload()
       .catch((error: unknown) => {
         if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
       })
@@ -83,7 +95,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [reload]);
 
   const items = useMemo(() => {
     if (!detail) return [];
@@ -124,9 +136,22 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
     setTab(key);
   }
 
-  function applyTemplate(template: RecordingTemplate): void {
+  async function applyTemplate(template: RecordingTemplate): Promise<void> {
     if (!detail) return;
-    const generated = generateLocalDerivative(template, detail);
+    setAiBusy(true);
+    setLoadError(null);
+    let generated: DerivativePayload;
+    try {
+      const db = await openDb();
+      const [key, settings] = await Promise.all([getDeepSeekApiKey(), loadAppSettings(db)]);
+      generated = key && settings.ai.enabled
+        ? await generateCustomDerivative(new DeepSeekClient(settings.ai, key), template, detail)
+        : generateLocalDerivative(template, detail);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+      setAiBusy(false);
+      return;
+    }
     setCustoms((prev) => [...prev.filter((c) => c.template_id !== template.id), generated]);
     setTab(`custom:${template.id}`);
     setSheetOpen(false);
@@ -139,7 +164,24 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
           payload: generated as unknown as Record<string, unknown>,
         }),
       )
-      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)))
+      .finally(() => setAiBusy(false));
+  }
+
+  async function regenerateAiNotes(): Promise<void> {
+    if (!detail || aiBusy) return;
+    setAiBusy(true);
+    setLoadError(null);
+    try {
+      const db = await openDb();
+      await enqueueRecordingNotesAiTask(db, detail.meta.id, { detail });
+      await runAiWorkerTick({ db, limit: 1 });
+      await reload();
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAiBusy(false);
+    }
   }
 
   function toggleTodo(itemId: string): void {
@@ -228,6 +270,29 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
           />
         ) : null}
 
+        <View style={styles.aiStatusCard}>
+          <View style={styles.aiStatusText}>
+            <Text style={styles.aiStatusTitle}>
+              {aiProviderLabel(detail.derivatives.summary?.provider)}
+            </Text>
+            <Text style={styles.aiStatusSub}>
+              {aiTaskLabel(aiTask, detail.derivatives.summary?.provider)}
+            </Text>
+          </View>
+          <Pressable
+            disabled={aiBusy}
+            onPress={() => {
+              void regenerateAiNotes();
+            }}
+            style={({ pressed }) => [
+              styles.aiButton,
+              (pressed || aiBusy) && styles.pressed,
+            ]}
+          >
+            <Text style={styles.aiButtonText}>{aiBusy ? '生成中' : '重新生成'}</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.footerNote}>
           <Text style={styles.footerNoteText}>
              笔记由 {detail.derivatives.summary?.provider ?? 'local'} 生成 ·
@@ -245,10 +310,26 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
       <TemplateSheet
         visible={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        onApply={applyTemplate}
+        onApply={(template) => {
+          void applyTemplate(template);
+        }}
       />
     </View>
   );
+}
+
+function aiProviderLabel(provider: string | undefined): string {
+  if (provider === 'deepseek-v4-flash') return 'DeepSeek V4 Flash';
+  return '本地规则结果';
+}
+
+function aiTaskLabel(task: AiTaskRow | null, provider: string | undefined): string {
+  if (task?.status === 'queued') return 'AI 笔记已排队，稍后自动生成。';
+  if (task?.status === 'running') return '正在生成 AI 笔记。';
+  if (task?.status === 'failed') return task.last_error ?? 'AI 生成失败，可重试。';
+  if (task?.status === 'skipped') return task.last_error ?? 'AI 生成已跳过。';
+  if (provider === 'deepseek-v4-flash') return '由用户自持 Key 直连 DeepSeek 生成。';
+  return '未配置 Key 或 AI 未完成时使用本地规则，不冒充 AI。';
 }
 
 function MetaRow({ label, value }: { label: string; value: string }): React.ReactElement {
@@ -706,6 +787,43 @@ const styles = StyleSheet.create({
   footerNote: {
     alignItems: 'center',
     marginTop: spacing.xxl,
+  },
+  aiStatusCard: {
+    alignItems: 'center',
+    backgroundColor: colors.bgSoft,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    marginTop: 24,
+    padding: 12,
+  },
+  aiStatusText: {
+    flex: 1,
+  },
+  aiStatusTitle: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  aiStatusSub: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  aiButton: {
+    backgroundColor: colors.textPrimary,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  aiButtonText: {
+    color: colors.bg,
+    fontSize: 12,
+    fontWeight: '800',
   },
   footerNoteText: {
     color: colors.textMuted,

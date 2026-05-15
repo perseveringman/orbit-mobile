@@ -6,6 +6,8 @@
  * @see docs/plans/2026-05-13-long-recording-and-transcript.md §8
  */
 
+import Constants from 'expo-constants';
+import * as Haptics from 'expo-haptics';
 import { Link, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -17,7 +19,18 @@ import {
 } from 'react-native';
 
 import type { RecordingMeta } from '../../../types/recording';
-import { listRecordingMetas } from '../../../core/recording/recording-service';
+import {
+  createRecordingCapture,
+  listRecordingMetas,
+} from '../../../core/recording/recording-service';
+import {
+  discardRecoveredVoiceRecording,
+  recoverInterruptedVoiceRecordings,
+  type RecoveredVoiceRecording,
+} from '../../../core/audio/recorder';
+import { openDb } from '../../../core/storage/db';
+import { runSyncTick } from '../../../core/sync/worker';
+import { writeWidgetSnapshot } from '../../../core/widget/snapshot';
 import { Waveform } from '../components/Waveform';
 import { StatusBadge } from '../components/StatusBadge';
 import {
@@ -36,15 +49,21 @@ interface Group {
 export function RecordingsListScreen(): React.ReactElement {
   const router = useRouter();
   const [recordings, setRecordings] = useState<RecordingMeta[]>([]);
+  const [recoverable, setRecoverable] = useState<RecoveredVoiceRecording[]>([]);
+  const [recoveringUri, setRecoveringUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const groups = useMemo(() => groupByDate(recordings), [recordings]);
 
   useEffect(() => {
     let cancelled = false;
-    listRecordingMetas()
-      .then((items) => {
+    Promise.all([
+      listRecordingMetas(),
+      recoverInterruptedVoiceRecordings().catch(() => []),
+    ])
+      .then(([items, recovered]) => {
         if (!cancelled) setRecordings(items);
+        if (!cancelled) setRecoverable(recovered);
       })
       .catch((loadError: unknown) => {
         if (!cancelled) {
@@ -58,6 +77,63 @@ export function RecordingsListScreen(): React.ReactElement {
       cancelled = true;
     };
   }, []);
+
+  async function refreshList(): Promise<void> {
+    const [items, recovered] = await Promise.all([
+      listRecordingMetas(),
+      recoverInterruptedVoiceRecordings().catch(() => []),
+    ]);
+    setRecordings(items);
+    setRecoverable(recovered);
+  }
+
+  async function saveRecovered(item: RecoveredVoiceRecording): Promise<void> {
+    setRecoveringUri(item.uri);
+    setError(null);
+    try {
+      const db = await openDb();
+      const detail = await createRecordingCapture(
+        {
+          title: '恢复的录音',
+          audioUri: item.uri,
+          durationMs: item.durationMs,
+          startedAt: item.startedAt ?? new Date().toISOString(),
+          languageHints: [],
+          partialProvider: 'unavailable',
+          transcriptText: '',
+          waveformSamples: [],
+          partials: [],
+        },
+        {
+          db,
+          sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
+        },
+      );
+      await discardRecoveredVoiceRecording(item.uri).catch(() => undefined);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void writeWidgetSnapshot(db).catch(() => undefined);
+      void runSyncTick({ db });
+      await refreshList();
+      router.push(`/recording/${detail.meta.id}`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setRecoveringUri(null);
+    }
+  }
+
+  async function discardRecovered(item: RecoveredVoiceRecording): Promise<void> {
+    setRecoveringUri(item.uri);
+    setError(null);
+    try {
+      await discardRecoveredVoiceRecording(item.uri);
+      setRecoverable((prev) => prev.filter((candidate) => candidate.uri !== item.uri));
+    } catch (discardError) {
+      setError(discardError instanceof Error ? discardError.message : String(discardError));
+    } finally {
+      setRecoveringUri(null);
+    }
+  }
 
   return (
     <View style={styles.container}>
@@ -82,7 +158,55 @@ export function RecordingsListScreen(): React.ReactElement {
       >
         {loading ? <Text style={styles.hint}>正在读取本机录音…</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {!loading && groups.length === 0 ? (
+        {recoverable.map((item) => {
+          const busy = recoveringUri === item.uri;
+          return (
+            <View key={item.uri} style={styles.recoveryCard}>
+              <View style={styles.recoveryTop}>
+                <Text style={styles.recoveryTitle}>发现未保存录音</Text>
+                <Text style={styles.recoveryDuration}>
+                  {formatDurationLabel(item.durationMs)}
+                </Text>
+              </View>
+              <Text style={styles.recoveryBody}>
+                上次录音被中断，原始音频仍在本机临时目录。保存后会进入本地 Capture，再按正常同步流程发送到 Mac。
+              </Text>
+              <View style={styles.recoveryActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => {
+                    void saveRecovered(item);
+                  }}
+                  style={({ pressed }) => [
+                    styles.recoveryPrimary,
+                    busy && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.recoveryPrimaryText}>
+                    {busy ? '处理中' : '保存录音'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => {
+                    void discardRecovered(item);
+                  }}
+                  style={({ pressed }) => [
+                    styles.recoverySecondary,
+                    busy && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.recoverySecondaryText}>丢弃</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })}
+        {!loading && groups.length === 0 && recoverable.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>还没有录音</Text>
             <Text style={styles.emptyBody}>点右上角“开始录”，录音会先完整保存在本机。</Text>
@@ -213,8 +337,72 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.78,
   },
+  disabled: {
+    opacity: 0.45,
+  },
   scroll: {
     paddingBottom: 56,
+  },
+  recoveryCard: {
+    backgroundColor: colors.warningSoft,
+    borderColor: '#f59e0b',
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: spacing.lg,
+    padding: 14,
+  },
+  recoveryTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  recoveryTitle: {
+    color: '#92400e',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  recoveryDuration: {
+    color: '#92400e',
+    fontSize: 12,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '800',
+  },
+  recoveryBody: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  recoveryActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  recoveryPrimary: {
+    alignItems: 'center',
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    flex: 1,
+    paddingVertical: 10,
+  },
+  recoveryPrimaryText: {
+    color: colors.bg,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  recoverySecondary: {
+    alignItems: 'center',
+    backgroundColor: colors.bg,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  recoverySecondaryText: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '800',
   },
   group: {
     marginBottom: spacing.lg,

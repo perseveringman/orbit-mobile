@@ -9,7 +9,7 @@
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -84,7 +84,7 @@ export function RecordingComposerScreen(): React.ReactElement {
   const [partials, setPartials] = useState<PartialLine[]>([]);
   const [marks, setMarks] = useState<LiveMark[]>([]);
   const [language, setLanguage] = useState('auto');
-  const [diarization, setDiarization] = useState(true);
+  const [diarization] = useState(false);
   const [title, setTitle] = useState('新会议 · 现在');
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
@@ -96,6 +96,7 @@ export function RecordingComposerScreen(): React.ReactElement {
   const partialProviderRef = useRef<'ios-speech' | 'unavailable'>('unavailable');
   const waveformRef = useRef<number[]>([]);
   const levelSubscriptionRef = useRef<{ remove(): void } | null>(null);
+  const liveOutline = useMemo(() => buildLiveOutline(partials), [partials]);
 
   useEffect(() => {
     let cancelled = false;
@@ -372,7 +373,7 @@ export function RecordingComposerScreen(): React.ReactElement {
             })}
           </View>
           <Pressable
-            onPress={() => setDiarization((v) => !v)}
+            onPress={() => setError('说话人分离 provider 尚未配置；本次会按单说话人结构保存。')}
             style={({ pressed }) => [
               styles.toggle,
               diarization && styles.toggleOn,
@@ -393,10 +394,16 @@ export function RecordingComposerScreen(): React.ReactElement {
           contentContainerStyle={styles.transcriptContent}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.sectionLabel}>大纲 · 实时占位</Text>
+          <Text style={styles.sectionLabel}>大纲 · 实时生成</Text>
           <View style={styles.outlineCard}>
-            <Text style={styles.outlineItem}>0:00:00 · 欢迎与议程</Text>
-            <Text style={styles.outlineItemMuted}>—— 录音继续后将自动补全 ——</Text>
+            {liveOutline.length === 0 ? (
+              <Text style={styles.outlineItemMuted}>转写出现后会自动生成片段大纲。</Text>
+            ) : null}
+            {liveOutline.map((item) => (
+              <Text key={`${item.ts}-${item.title}`} style={styles.outlineItem}>
+                {formatTimestamp(item.ts)} · {item.title}
+              </Text>
+            ))}
           </View>
           <Text style={styles.sectionLabel}>转写</Text>
            {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -428,16 +435,18 @@ export function RecordingComposerScreen(): React.ReactElement {
               </View>
             </View>
           ))}
-          <Text style={styles.tailHint}>整体转写将在停止后自动开始（180+ 语言）</Text>
+          <Text style={styles.tailHint}>停止后会基于实时转写生成本地 final transcript，原始录音始终保留。</Text>
         </ScrollView>
       ) : null}
 
       {tab === 'source' ? (
         <View style={styles.placeholderCard}>
-          <Text style={styles.placeholderTitle}>来源</Text>
-          <Text style={styles.placeholderBody}>
-            录音中暂不展示来源时间轴；停止后可在详情页边听边看。
-          </Text>
+          <Text style={styles.placeholderTitle}>录音源</Text>
+          <SourceRow label="状态" value={recording ? (paused ? '已暂停' : '录音中') : '启动中'} />
+          <SourceRow label="开始时间" value={new Date(startedAtRef.current).toLocaleString('zh-Hans-CN')} />
+          <SourceRow label="语言" value={LANGUAGES.find((item) => item.code === language)?.label ?? language} />
+          <SourceRow label="实时转写" value={partialProviderRef.current === 'ios-speech' ? 'Apple Speech' : '不可用，仍保存原音'} />
+          <SourceRow label="说话人" value="单说话人本地结构" />
         </View>
       ) : null}
       {tab === 'mark' ? (
@@ -463,6 +472,29 @@ export function RecordingComposerScreen(): React.ReactElement {
       ) : null}
     </View>
   );
+}
+
+function SourceRow({ label, value }: { label: string; value: string }): React.ReactElement {
+  return (
+    <View style={styles.sourceRow}>
+      <Text style={styles.sourceLabel}>{label}</Text>
+      <Text style={styles.sourceValue}>{value}</Text>
+    </View>
+  );
+}
+
+function buildLiveOutline(partials: PartialLine[]): Array<{ ts: number; title: string }> {
+  const latest = partials.at(-1)?.text.trim();
+  if (!latest) return [];
+  const sentences = latest.match(/[^。！？.!?\n]+[。！？.!?]?/g) ?? [latest];
+  return sentences
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .slice(-5)
+    .map((sentence, index) => ({
+      ts: partials.at(-1)?.ts ?? 0,
+      title: sentence.length > 34 ? `${sentence.slice(0, 34)}…` : sentence || `片段 ${index + 1}`,
+    }));
 }
 
 const styles = StyleSheet.create({
@@ -785,6 +817,25 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 13,
     lineHeight: 20,
+  },
+  sourceRow: {
+    borderBottomColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 11,
+  },
+  sourceLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sourceValue: {
+    color: colors.textPrimary,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'right',
   },
   markButton: {
     alignSelf: 'flex-start',

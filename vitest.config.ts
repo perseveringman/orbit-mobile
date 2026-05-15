@@ -17,6 +17,7 @@ export default defineConfig({
         'tests/setup/expo-file-system-legacy-mock.ts',
       ),
       'expo-modules-core': path.resolve(__dirname, 'tests/setup/expo-modules-core-mock.ts'),
+      'expo-secure-store': path.resolve(__dirname, 'tests/setup/expo-secure-store-mock.ts'),
     },
   },
 });

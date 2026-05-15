@@ -23,7 +23,9 @@ export async function pickImages(): Promise<PickedImage[]> {
   const result = await ImagePicker.launchImageLibraryAsync({
     allowsMultipleSelection: true,
     mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    orderedSelection: true,
     quality: 0.82,
+    selectionLimit: 10,
   });
   if (result.canceled) return [];
   return Promise.all(result.assets.map((asset, index) => toPickedImage(asset, index)));
@@ -44,7 +46,10 @@ export async function takePhoto(): Promise<PickedImage | null> {
   return toPickedImage(asset, 0);
 }
 
-async function toPickedImage(asset: ImagePicker.ImagePickerAsset, index: number): Promise<PickedImage> {
+async function toPickedImage(
+  asset: ImagePicker.ImagePickerAsset,
+  index: number,
+): Promise<PickedImage> {
   const extension = extensionFromUri(asset.uri) ?? 'jpg';
   const compressed = await compressImage(asset.uri, {
     width: asset.width,
@@ -61,7 +66,8 @@ async function toPickedImage(asset: ImagePicker.ImagePickerAsset, index: number)
     byteSize: compressed.byteSize,
     compressed: compressed.compressed,
     originalUri: asset.uri,
-    originalFilename: sanitizeFilename(asset.fileName) ?? `original-photo-${index + 1}.${extension}`,
+    originalFilename:
+      sanitizeFilename(asset.fileName) ?? `original-photo-${index + 1}.${extension}`,
     originalMime: asset.mimeType ?? mimeFromExtension(extension),
   };
 }

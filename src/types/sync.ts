@@ -16,7 +16,10 @@ export type SyncEventName =
   | 'retried'
   | 'manual_retry'
   | 'reset'
-  | 'attempts_exhausted';
+  | 'attempts_exhausted'
+  | 'ai_generated'
+  | 'ai_retry'
+  | 'ai_failed';
 
 export interface RetrySchedule {
   attempts: number;

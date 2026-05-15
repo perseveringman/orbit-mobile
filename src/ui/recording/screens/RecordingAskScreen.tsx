@@ -11,7 +11,7 @@
  */
 
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -21,7 +21,12 @@ import {
   View,
 } from 'react-native';
 
+import { getDeepSeekApiKey } from '../../../core/ai/api-key';
+import { DeepSeekClient } from '../../../core/ai/deepseek-client';
+import { askRecordingQuestion } from '../../../core/ai/recording-notes';
 import { loadRecordingDetail } from '../../../core/recording/recording-service';
+import { loadAppSettings } from '../../../core/settings/app-settings';
+import { openDb } from '../../../core/storage/db';
 import type { RecordingDetail } from '../../../types/recording';
 import { colors, radius, spacing } from '../theme';
 
@@ -53,7 +58,8 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  let messageId = messages.length;
+  const [sending, setSending] = useState(false);
+  const nextMessageId = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,18 +75,42 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
     };
   }, [id]);
 
-  function send(question: string): void {
+  async function send(question: string): Promise<void> {
     if (!question.trim()) return;
-    messageId += 1;
-    const user: ChatMessage = { id: messageId, role: 'user', text: question.trim() };
-    messageId += 1;
-      const reply: ChatMessage = {
-      id: messageId,
-      role: 'assistant',
-      text: buildLocalReply(question, detail),
+    const user: ChatMessage = {
+      id: nextMessageId.current += 1,
+      role: 'user',
+      text: question.trim(),
     };
-    setMessages((prev) => [...prev, user, reply]);
+    setMessages((prev) => [...prev, user]);
     setDraft('');
+    setSending(true);
+    let answer: string;
+    try {
+      const db = await openDb();
+      const [settings, key] = await Promise.all([loadAppSettings(db), getDeepSeekApiKey()]);
+      if (detail && key && settings.ai.enabled) {
+        answer = await askRecordingQuestion(new DeepSeekClient(settings.ai, key), detail, question.trim());
+      } else {
+        answer = [
+          key ? '' : '尚未配置 DeepSeek API Key，以下是本地兜底回答。',
+          buildLocalReply(question, detail),
+        ].filter(Boolean).join('\n\n');
+      }
+    } catch (error) {
+      answer = [
+        `DeepSeek 请求失败：${error instanceof Error ? error.message : String(error)}`,
+        '',
+        buildLocalReply(question, detail),
+      ].join('\n');
+    }
+    const reply: ChatMessage = {
+      id: nextMessageId.current += 1,
+      role: 'assistant',
+      text: answer,
+    };
+    setMessages((prev) => [...prev, reply]);
+    setSending(false);
   }
 
   function runAction(actionId: string): void {
@@ -90,7 +120,7 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
         : actionId === 'todo'
           ? '把这次会议中提到的所有待办抽出来，附带 Owner 和时间。'
           : '帮我给参会人员写一封英文跟进邮件，列清楚决策与下一步。';
-    send(phrase);
+    void send(phrase);
   }
 
   return (
@@ -135,7 +165,9 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
             {SUGGESTIONS.map((s, idx) => (
               <Pressable
                 key={idx}
-                onPress={() => send(s)}
+                onPress={() => {
+                  void send(s);
+                }}
                 style={({ pressed }) => [
                   styles.suggestion,
                   pressed && styles.pressed,
@@ -162,6 +194,11 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
             </View>
           ))
         )}
+        {sending ? (
+          <View style={[styles.message, styles.assistant]}>
+            <Text style={styles.messageTextAssistant}>DeepSeek 正在思考…</Text>
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={styles.actionRow}>
@@ -183,11 +220,15 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
           placeholderTextColor={colors.textMuted}
           value={draft}
           onChangeText={setDraft}
-          onSubmitEditing={() => send(draft)}
+          onSubmitEditing={() => {
+            void send(draft);
+          }}
           returnKeyType="send"
         />
         <Pressable
-          onPress={() => send(draft)}
+          onPress={() => {
+            void send(draft);
+          }}
           style={({ pressed }) => [styles.mic, pressed && styles.pressed]}
         >
           <Text style={styles.micText}>🎙</Text>

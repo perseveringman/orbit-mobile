@@ -47,7 +47,7 @@ CREATE TABLE captures (
   sync_next_retry_at   TEXT,                 -- 下次重试最早时间（退避计算后写入）
   uploaded_at          TEXT,                 -- sync_state 变 uploaded 的时间
   acked_at             TEXT,                 -- Mac ingest 确认时间
-  ack_vault_path       TEXT,                 -- Mac 端 ingest 写到了哪（inbox_item_id 或路径）
+  ack_vault_path       TEXT,                 -- Mac 端 ingest 写到了哪（ACK v2 note_path；legacy 回退路径）
   
   -- 本地管理
   local_path           TEXT NOT NULL,        -- captures/<id>/ 的绝对路径

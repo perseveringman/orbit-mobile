@@ -5,6 +5,8 @@
 > **Author**: Codex（按用户口述需求草拟）
 > **Companion docs**: [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) · [`docs/DATA-MODEL.md`](../DATA-MODEL.md) · [`docs/UX-PRINCIPLES.md`](../UX-PRINCIPLES.md) · [`docs/VISION.md`](../VISION.md)
 
+> **2026-05-15 sync update**: Mac 端不再把录音派生物写入 Inbox / Thought。录音 capture 会 materialize 为 `voice_log` Note，转写摘录和源附件进正文，DeepSeek 派生物进入 Note Workbench / Synthesis，等待用户接受。
+
 ---
 
 ## 0. 一句话目标
@@ -97,7 +99,7 @@
 顶 Tab：**总结 · 决策 · 风险 · 待办事项 · +**（自定义模板）。
 - 设计图 2 = 总结（概述 / 目标）。
 - 设计图 3 = 决策（决策 1/2/3 卡片）。
-- 风险、待办同结构；待办可勾选并写回 manifest 派生物，Mac 端读取后流入 Inbox。
+- 风险、待办同结构；待办可勾选并写回 manifest 派生物，Mac 端读取后进入 Note Workbench / Synthesis，用户接受后再进入桌面端对应流程。
 
 ### 4.5 自定义模板 = **设计图 4**
 - 用户点 "+" 进入"新笔记"模板选择 sheet。
@@ -385,7 +387,7 @@ interface FinalTranscribeProvider {
 
 - [ ] iOS 18 起 Apple 自家 on-device Whisper 是否够用？需要真机评估准确度（中文 / 多语 / 说话人）。
 - [ ] 派生物的"再生成"是否覆盖旧版本？建议保留 `derivatives/<kind>.<ts>.json` 历史，UI 默认看最新。
-- [ ] Mac 端是否要把 transcript 拆成多条 Thought 还是单条 Thought + 链接？建议单条 + 内嵌附件。
+- [x] Mac 端 transcript 默认随 `voice_log` Note 展示摘录并保留源 JSON；不拆成多条 Thought。
 - [ ] 待办勾选回写到哪？建议 manifest derivative 内 + Mac 端 `task` 模块。
 
 ---

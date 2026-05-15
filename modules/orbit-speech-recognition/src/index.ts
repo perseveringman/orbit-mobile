@@ -16,6 +16,13 @@ export interface SpeechCaptureResult {
   durationMs: number;
 }
 
+export interface RecoveredSpeechCapture {
+  uri: string;
+  durationMs: number;
+  startedAt?: string;
+  recoveredAt: string;
+}
+
 export interface AudioLevelEvent {
   elapsedMs: number;
   rms: number;
@@ -36,6 +43,9 @@ export type SpeechNativeModule = {
   pauseCapture(): Promise<void>;
   resumeCapture(): Promise<void>;
   stopCapture(): Promise<SpeechCaptureResult>;
+  cancelCapture(): Promise<void>;
+  recoverInterruptedCaptures(): Promise<RecoveredSpeechCapture[]>;
+  discardRecoveredCapture(uri: string): Promise<void>;
   addListener<EventName extends keyof SpeechEvents>(
     eventName: EventName,
     listener: SpeechEvents[EventName],
@@ -70,6 +80,18 @@ export async function resumeCapture(): Promise<void> {
 
 export async function stopCapture(): Promise<SpeechCaptureResult> {
   return nativeModule.stopCapture();
+}
+
+export async function cancelCapture(): Promise<void> {
+  await nativeModule.cancelCapture();
+}
+
+export async function recoverInterruptedCaptures(): Promise<RecoveredSpeechCapture[]> {
+  return nativeModule.recoverInterruptedCaptures();
+}
+
+export async function discardRecoveredCapture(uri: string): Promise<void> {
+  await nativeModule.discardRecoveredCapture(uri);
 }
 
 export function addTranscriptionListener(listener: (event: TranscriptionEvent) => void): { remove(): void } {

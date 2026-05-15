@@ -4,9 +4,10 @@
  * 轻触弹 ActionSheet：相册 / 拍照 / 取消。
  */
 
-import { ActionSheetIOS, Platform, Pressable, StyleSheet, Text } from 'react-native';
+import { ActionSheetIOS, Platform, Pressable, StyleSheet } from 'react-native';
 
 import { pickImages, takePhoto, type PickedImage } from '../../core/image/picker';
+import { ComposerIcon } from './composer-icons';
 
 interface MediaPickerProps {
   disabled?: boolean;
@@ -35,7 +36,7 @@ export function MediaPicker({ disabled, onPicked, onError }: MediaPickerProps): 
       ActionSheetIOS.showActionSheetWithOptions(
         {
           cancelButtonIndex: 2,
-          options: ['从相册选择', '拍照', '取消'],
+          options: ['从相册多选', '拍照', '取消'],
           title: '添加图片',
         },
         (index) => {
@@ -50,30 +51,36 @@ export function MediaPicker({ disabled, onPicked, onError }: MediaPickerProps): 
 
   return (
     <Pressable
+      accessibilityLabel="添加图片"
       accessibilityRole="button"
       disabled={disabled}
-      style={[styles.button, disabled && styles.disabled]}
+      style={({ pressed }) => [
+        styles.button,
+        disabled && styles.disabled,
+        pressed && !disabled && styles.pressed,
+      ]}
       onPress={open}
     >
-      <Text style={styles.text}>图片</Text>
+      <ComposerIcon name="image" color="#0f172a" size={23} />
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
     borderColor: '#cbd5e1',
-    borderRadius: 999,
+    borderRadius: 14,
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
   },
   disabled: {
     opacity: 0.35,
   },
-  text: {
-    color: '#111827',
-    fontSize: 13,
-    fontWeight: '700',
+  pressed: {
+    transform: [{ scale: 0.96 }],
   },
 });

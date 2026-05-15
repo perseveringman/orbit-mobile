@@ -265,20 +265,30 @@ function computeBackoff(attempt: number): ISO8601 {
 ### 8.1 Mac 端的动作
 
 Mac 端 `mobile_inbound` watcher：
-1. 监听 `inbox/<id>/manifest.json` 的出现
-2. 等附件全部到齐（轮询 `.sha256` 存在 + 所有 attachment 文件存在）
-3. 校验 sha256
-4. 调 `ThoughtService.create()` 写入 vault
-5. 成功：**移动** `inbox/<id>/` 到 `processed/<id>/`，同时写 `.acked` 文件：
+1. 监听 `inbox/<id>/.complete` 的出现
+2. 如果 `processed/<id>/.acked` 已存在，删除重复的 `inbox/<id>` 并复用既有 ACK
+3. 读 `manifest.json`，按 `schema_version` 校验兼容性
+4. 校验 `manifest.json.sha256`
+5. 校验所有 attachment 的安全相对路径、文件存在性、`sha256` 和 `byte_size`
+6. 复制附件到 `<vault>/.orbit/capture/attachments/<id>/`
+7. 创建或复用稳定 Note（`thought` → `notes/thoughts`，`voice/recording` → `notes/voice_logs`，`photo/share/mixed` → `notes/captures`）
+8. 对 `recording` capture 读取 `transcript` / `derivative` artifact：转写摘录和源附件进入 Note 正文；DeepSeek 总结、决策、风险、待办、自定义笔记进入 Note Workbench / Synthesis，不默认写入正文
+9. 发布 `note.created` TraceableEvent，让 Timeline 展示该 capture
+10. 成功：清理旧 `failed/<id>`，**移动** `inbox/<id>/` 到 `processed/<id>/`，同时写 ACK v2：
    ```json
    {
+     "schema_version": 2,
      "acked_at": "2026-05-06T10:32:15.123Z",
-     "inbox_item_id": "thought_xxx",
+     "artifact_kind": "note",
+     "note_id": "note-mob_cap_xxx",
+     "note_path": "notes/voice_logs/2026-05-06T10-32-product-meeting.md",
+     "timeline_event_id": "mobile-capture-note:mob_cap_xxx",
      "vault_path": "/Users/.../vault",
-     "mac_identity": "MacBook-Pro-Ryan"
+     "mac_identity": "MacBook-Pro-Ryan",
+     "orbit_version": "1.0.0"
    }
    ```
-6. 失败：移动到 `failed/<id>/`，写 `.failed.json`：
+11. 失败：移动到 `failed/<id>/`，写 `.failed.json`：
    ```json
    {
      "failed_at": "2026-05-06T10:32:15.123Z",
@@ -318,6 +328,12 @@ iCloudBridge.subscribeToChanges('failed/', (event) => {
 
 **ACK 补偿**：如果 iOS 启动时发现某条已 uploaded > 1 天但没 acked，主动扫描一次 processed/ 看是否漏了监听事件。
 
+**ACK 优先级**：每次 tick 都先查 `processed/<id>/.acked`，再查 `failed/<id>/.failed.json`。如果 iCloud 里同时残留 ACK 和旧 failure，ACK 胜出并把本地 capture 标记为 `acked`。
+
+**ACK 路径语义**：schema v2 时，iOS 把 `note_path` 记录为本地 `ack_vault_path`，用于展示“已到 Mac Notes”。legacy schema v1 仍回退读取 `vault_note_path` / `vault_path`。
+
+**重传清理**：retryable failure 到期重传时，iOS 先删除远端 `failed/<id>`，再重新上传完整本地 capture 到 `inbox/<id>`；这样不会让旧失败在下一轮 tick 中覆盖新上传。
+
 ---
 
 ## 9. 异常处理详表
@@ -328,7 +344,7 @@ iCloudBridge.subscribeToChanges('failed/', (event) => {
 | iCloud 未登录 | getContainerStatus → 'not-signed-in' | 全部 pending，顶部 banner |
 | iCloud 空间满 | copy 报 `NSFileProviderErrorInsufficientQuota` | 标记 failed + 特殊 banner "iCloud 空间已满" + 不再自动重试（等用户清理） |
 | iCloud 账号变更 | getContainerStatus → 'restricted' | 暂停 + 提示"重新登录相同 Apple ID" |
-| 某文件传输损坏 | Mac sha256 mismatch → failed.json retryable=true | iOS 自动重传 |
+| 某文件传输损坏 | Mac sha256 mismatch → failed.json retryable=true | iOS 清理远端 failed 后自动重传 |
 | manifest schema 错误 | Mac 解析报错 → failed.json retryable=false | iOS 标 conflicted |
 | Mac 端 Orbit 没在运行 | 数据留在 inbox 等 Mac 下次启动 | 正常——这是预期 |
 | iOS 重装 app | 沙盒清空 | iCloud 里的不受影响；但本地也没了。提示用户"检测到 iCloud 有 N 条未 ack 的记录，是否恢复到本地"（V2 功能） |

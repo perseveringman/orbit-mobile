@@ -14,6 +14,7 @@ describe('storage migrations', () => {
     expect(schema.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         'captures',
+        'ai_tasks',
         'device_info',
         'drafts',
         'recording_annotations',
@@ -25,7 +26,7 @@ describe('storage migrations', () => {
     const version = await db.getFirstAsync<{ value: string }>(
       `SELECT value FROM device_info WHERE key = 'schema_version'`,
     );
-    expect(version?.value).toBe('3');
+    expect(version?.value).toBe('4');
   });
 
   it('is idempotent for an already migrated database', async () => {
@@ -37,7 +38,7 @@ describe('storage migrations', () => {
       `SELECT value FROM device_info WHERE key = 'schema_version'`,
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.value).toBe('3');
+    expect(rows[0]?.value).toBe('4');
   });
 
   it('rolls back a failed migration without leaving dirty tables or schema_version', async () => {

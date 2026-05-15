@@ -16,9 +16,11 @@ import { Link, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Keyboard,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -28,17 +30,28 @@ import {
 import type { KeyboardEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { createCapture, createTextCapture } from '../../core/capture/atomic-write';
-import { loadAppSettings } from '../../core/settings/app-settings';
+import { createCapture } from '../../core/capture/atomic-write';
+import type { CaptureAttachment } from '../../core/capture/types';
+import { loadAppSettings, type ImageOriginalPolicy } from '../../core/settings/app-settings';
 import { openDb } from '../../core/storage/db';
 import { runSyncTick } from '../../core/sync/worker';
 import { writeWidgetSnapshot } from '../../core/widget/snapshot';
 import type { VoiceRecordingResult } from '../../core/audio/recorder';
 import type { LiveTranscriptionState } from '../../core/audio/transcription';
 import type { PickedImage } from '../../core/image/picker';
+import { ComposerIcon } from '../components/composer-icons';
 import { MediaPicker } from '../components/media-picker';
 import { VoiceButton } from '../components/voice-button';
 import { useDraft } from '../hooks/use-draft';
+
+interface PendingVoice {
+  id: string;
+  uri: string;
+  durationMs?: number | null;
+  recordedAt: string;
+  transcription?: string;
+  transcriptionSource?: string;
+}
 
 export function CaptureScreen(): React.ReactElement {
   const inputRef = useRef<TextInput>(null);
@@ -46,12 +59,17 @@ export function CaptureScreen(): React.ReactElement {
   const draft = useDraft();
   const insets = useSafeAreaInsets();
   const window = useWindowDimensions();
+  const voiceTranscriptBaseRef = useRef<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clipboardText, setClipboardText] = useState<string | null>(null);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [liveTranscription, setLiveTranscription] = useState<LiveTranscriptionState | null>(null);
+  const [pendingImages, setPendingImages] = useState<PickedImage[]>([]);
+  const [pendingVoices, setPendingVoices] = useState<PendingVoice[]>([]);
+  const canSave =
+    draft.content.trim().length > 0 || pendingImages.length > 0 || pendingVoices.length > 0;
 
   useEffect(() => {
     const focusHandle = setTimeout(() => inputRef.current?.focus(), 50);
@@ -86,7 +104,7 @@ export function CaptureScreen(): React.ReactElement {
 
   async function save(): Promise<void> {
     const content = draft.content.trim();
-    if (!content || saving) {
+    if (!canSave || saving) {
       return;
     }
 
@@ -94,10 +112,19 @@ export function CaptureScreen(): React.ReactElement {
     setError(null);
     try {
       const db = await openDb();
-      await createTextCapture(
+      const settings = await loadAppSettings(db);
+      const imageAttachments = imageCaptureAttachments(pendingImages, settings.imageOriginalPolicy);
+      const voiceAttachments = voiceCaptureAttachments(pendingVoices, content);
+      await createCapture(
         {
-          content,
+          content:
+            content ||
+            fallbackContent({
+              hasImages: pendingImages.length > 0,
+              hasVoices: pendingVoices.length > 0,
+            }),
           sessionId: draft.sessionId,
+          attachments: [...voiceAttachments, ...imageAttachments],
         },
         {
           db,
@@ -105,6 +132,10 @@ export function CaptureScreen(): React.ReactElement {
         },
       );
       await draft.clear();
+      setPendingImages([]);
+      setPendingVoices([]);
+      setLiveTranscription(null);
+      voiceTranscriptBaseRef.current = null;
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setMessage('已保存 ✓');
       void writeWidgetSnapshot(db).catch(() => undefined);
@@ -117,109 +148,34 @@ export function CaptureScreen(): React.ReactElement {
     }
   }
 
-  async function saveVoice(result: VoiceRecordingResult): Promise<void> {
-    setSaving(true);
-    setError(null);
-    try {
-      const db = await openDb();
-      const content = draft.content.trim() || '语音记录';
-      await createCapture(
-        {
-          kind: 'voice',
-          content,
-          sessionId: draft.sessionId,
-          attachments: [
-            {
-              type: 'audio',
-              filename: 'audio.m4a',
-              localUri: result.uri,
-              mime: 'audio/m4a',
-              duration_ms: result.durationMs ?? undefined,
-              recorded_at: new Date().toISOString(),
-              transcription: draft.content.trim() || undefined,
-              transcription_source: draft.content.trim()
-                ? liveTranscription?.source === 'ios-speech'
-                  ? 'ios-speech'
-                  : 'manual'
-                : undefined,
-            },
-          ],
-        },
-        {
-          db,
-          sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
-        },
-      );
-      await draft.clear();
-      setLiveTranscription(null);
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setMessage('语音已保存 ✓');
-      void writeWidgetSnapshot(db).catch(() => undefined);
-      void runSyncTick({ db });
-      setTimeout(() => inputRef.current?.focus(), 0);
-    } catch (voiceError) {
-      setError(voiceError instanceof Error ? voiceError.message : String(voiceError));
-    } finally {
-      setSaving(false);
-    }
+  function appendImages(images: PickedImage[]): void {
+    if (images.length === 0) return;
+    setPendingImages((current) => [...current, ...images].slice(0, 10));
+    setMessage(images.length === 1 ? '图片已加入' : `${images.length} 张图片已加入`);
+    setTimeout(() => inputRef.current?.focus(), 0);
   }
 
-  async function saveImages(images: PickedImage[]): Promise<void> {
-    if (images.length === 0) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const db = await openDb();
-      const settings = await loadAppSettings(db);
-      const content = draft.content.trim();
-      await createCapture(
-        {
-          kind: content.length > 0 ? 'mixed' : 'photo',
-          content,
-          sessionId: draft.sessionId,
-          attachments: images.flatMap((image, index) => {
-            const capturedAt = new Date().toISOString();
-            const compressed = {
-              type: 'image' as const,
-              filename: image.filename || `photo-${index + 1}.jpg`,
-              localUri: image.uri,
-              mime: image.mime,
-              byte_size: image.byteSize,
-              width: image.width,
-              height: image.height,
-              captured_at: capturedAt,
-            };
-            if (!settings.keepImageOriginal || !image.compressed || image.originalUri === image.uri) {
-              return [compressed];
-            }
-            return [
-              compressed,
-              {
-                type: 'file' as const,
-                filename: originalImageFilename(image.originalFilename, index),
-                localUri: image.originalUri,
-                mime: image.originalMime,
-                captured_at: capturedAt,
-              },
-            ];
-          }),
-        },
-        {
-          db,
-          sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
-        },
-      );
-      await draft.clear();
-      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setMessage('图片已保存 ✓');
-      void writeWidgetSnapshot(db).catch(() => undefined);
-      void runSyncTick({ db });
-      setTimeout(() => inputRef.current?.focus(), 0);
-    } catch (imageError) {
-      setError(imageError instanceof Error ? imageError.message : String(imageError));
-    } finally {
-      setSaving(false);
-    }
+  function appendVoice(result: VoiceRecordingResult): void {
+    const transcript = liveTranscription?.transcript.trim() ?? '';
+    setPendingVoices((current) => [
+      ...current,
+      {
+        id: `${Date.now()}-${current.length}`,
+        uri: result.uri,
+        durationMs: result.durationMs,
+        recordedAt: new Date().toISOString(),
+        transcription: transcript || undefined,
+        transcriptionSource: transcript
+          ? liveTranscription?.source === 'ios-speech'
+            ? 'ios-speech'
+            : 'manual'
+          : undefined,
+      },
+    ]);
+    setLiveTranscription(null);
+    voiceTranscriptBaseRef.current = null;
+    setMessage('语音已加入');
+    setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   return (
@@ -261,82 +217,150 @@ export function CaptureScreen(): React.ReactElement {
       {message ? <Text style={styles.toast}>{message}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <TextInput
-        ref={inputRef}
-        autoFocus
-        blurOnSubmit={false}
-        multiline
-        placeholder="捕捉这一刻……"
-        style={styles.input}
-        textAlignVertical="top"
-        value={draft.content}
-        onChangeText={(value) => draft.setContent(value)}
-      />
+      <View style={[styles.composer, { marginBottom: keyboardInset + insets.bottom }]}>
+        <TextInput
+          ref={inputRef}
+          autoFocus
+          blurOnSubmit={false}
+          multiline
+          placeholder="捕捉这一刻……"
+          placeholderTextColor="#94a3b8"
+          style={styles.input}
+          textAlignVertical="top"
+          value={draft.content}
+          onChangeText={(value) => draft.setContent(value)}
+        />
 
-      <View style={[styles.bottomBar, { marginBottom: keyboardInset, paddingBottom: insets.bottom }]}>
-        <VoiceButton
-          disabled={saving}
-          onTranscript={(state) => {
-            setLiveTranscription(state);
-            draft.setContent(state.transcript);
-          }}
-          onRecorded={(result) => {
-            void saveVoice(result);
-          }}
-          onError={(voiceError) => {
-            setError(voiceError instanceof Error ? voiceError.message : String(voiceError));
-          }}
-        />
-        <MediaPicker
-          disabled={saving}
-          onPicked={(images) => {
-            void saveImages(images);
-          }}
-          onError={(imageError) => {
-            setError(imageError instanceof Error ? imageError.message : String(imageError));
-          }}
-        />
-        <Pressable
-          accessibilityRole="button"
-          disabled={saving}
-          onPress={() => router.push('/recording/new')}
-          onLongPress={() => router.push('/recording/new')}
-          style={({ pressed }) => [
-            styles.longRecordButton,
-            saving && styles.longRecordButtonDisabled,
-            pressed && styles.longRecordButtonPressed,
-          ]}
-        >
-          <View style={styles.longRecordDot} />
-          <Text style={styles.longRecordText}>持续录音</Text>
-        </Pressable>
-        {keyboardInset > 0 ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              Keyboard.dismiss();
-            }}
-            style={({ pressed }) => [styles.dismissButton, pressed && styles.dismissButtonPressed]}
+        {pendingImages.length > 0 || pendingVoices.length > 0 ? (
+          <ScrollView
+            horizontal
+            keyboardShouldPersistTaps="handled"
+            showsHorizontalScrollIndicator={false}
+            style={styles.previewRail}
+            contentContainerStyle={styles.previewRailContent}
           >
-            <Text style={styles.dismissText}>收起</Text>
+            {pendingImages.map((image, index) => (
+              <View key={`${image.uri}-${index}`} style={styles.imagePreview}>
+                <Image source={{ uri: image.uri }} style={styles.imageThumb} />
+                <Pressable
+                  accessibilityLabel="移除图片"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setPendingImages((current) =>
+                      current.filter((_, itemIndex) => itemIndex !== index),
+                    );
+                  }}
+                  style={styles.removeButton}
+                >
+                  <ComposerIcon name="x" color="#ffffff" size={14} />
+                </Pressable>
+              </View>
+            ))}
+            {pendingVoices.map((voice, index) => (
+              <View key={voice.id} style={styles.voicePreview}>
+                <ComposerIcon name="mic" color="#4338ca" size={18} />
+                <Text style={styles.voicePreviewText}>{formatDuration(voice.durationMs)}</Text>
+                <Pressable
+                  accessibilityLabel="移除语音"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setPendingVoices((current) =>
+                      current.filter((_, itemIndex) => itemIndex !== index),
+                    );
+                  }}
+                  style={styles.voiceRemoveButton}
+                >
+                  <ComposerIcon name="x" color="#64748b" size={12} />
+                </Pressable>
+              </View>
+            ))}
+          </ScrollView>
+        ) : null}
+
+        <View style={styles.bottomBar}>
+          <VoiceButton
+            disabled={saving}
+            onTranscript={(state) => {
+              setLiveTranscription(state);
+              if (voiceTranscriptBaseRef.current === null) {
+                voiceTranscriptBaseRef.current = draft.content.trimEnd();
+              }
+              const base = voiceTranscriptBaseRef.current;
+              draft.setContent(base ? `${base}\n${state.transcript}` : state.transcript);
+            }}
+            onRecorded={appendVoice}
+            onError={(voiceError) => {
+              voiceTranscriptBaseRef.current = null;
+              setError(voiceError instanceof Error ? voiceError.message : String(voiceError));
+            }}
+          />
+          <MediaPicker
+            disabled={saving}
+            onPicked={appendImages}
+            onError={(imageError) => {
+              setError(imageError instanceof Error ? imageError.message : String(imageError));
+            }}
+          />
+          <Pressable
+            accessibilityLabel="持续录音"
+            accessibilityRole="button"
+            disabled={saving}
+            onPress={() => router.push('/recording/new')}
+            onLongPress={() => router.push('/recording/new')}
+            style={({ pressed }) => [
+              styles.iconButton,
+              styles.recordingButton,
+              saving && styles.iconButtonDisabled,
+              pressed && !saving && styles.iconButtonPressed,
+            ]}
+          >
+            <ComposerIcon name="recording" color="#dc2626" size={22} />
           </Pressable>
-        ) : (
-          <Text style={styles.disabledAction}>#</Text>
-        )}
-        <Pressable
-          accessibilityRole="button"
-          disabled={saving || draft.content.trim().length === 0}
-          style={({ pressed }) => [
-            styles.saveButton,
-            (saving || draft.content.trim().length === 0) && styles.saveButtonDisabled,
-            pressed && styles.saveButtonPressed,
-          ]}
-          onPress={() => {
-            void save();
-          }}
-        >
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>完成</Text>}
-        </Pressable>
+          {keyboardInset > 0 ? (
+            <Pressable
+              accessibilityLabel="收起键盘"
+              accessibilityRole="button"
+              onPress={() => {
+                Keyboard.dismiss();
+              }}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+            >
+              <ComposerIcon name="keyboard" color="#334155" size={22} />
+            </Pressable>
+          ) : (
+            <Pressable
+              accessibilityLabel="插入标签"
+              accessibilityRole="button"
+              onPress={() => {
+                const next = draft.content.length === 0 ? '# ' : `${draft.content.trimEnd()}\n# `;
+                draft.setContent(next);
+                setTimeout(() => inputRef.current?.focus(), 0);
+              }}
+              style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
+            >
+              <ComposerIcon name="hash" color="#334155" size={22} />
+            </Pressable>
+          )}
+          <Pressable
+            accessibilityLabel="保存"
+            accessibilityRole="button"
+            disabled={saving || !canSave}
+            style={({ pressed }) => [
+              styles.saveButton,
+              (saving || !canSave) && styles.saveButtonDisabled,
+              pressed && canSave && styles.saveButtonPressed,
+            ]}
+            onPress={() => {
+              void save();
+            }}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ComposerIcon name="send" color="#fff" size={24} />
+            )}
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -351,6 +375,72 @@ function isUrl(value: string): boolean {
   }
 }
 
+function imageCaptureAttachments(
+  images: PickedImage[],
+  policy: ImageOriginalPolicy,
+): CaptureAttachment[] {
+  return images.flatMap((image, index) => {
+    const capturedAt = new Date().toISOString();
+    const compressed: CaptureAttachment = {
+      type: 'image',
+      filename: `photo-${index + 1}.jpg`,
+      localUri: image.uri,
+      mime: image.mime,
+      byte_size: image.byteSize,
+      width: image.width,
+      height: image.height,
+      captured_at: capturedAt,
+    };
+    if (policy === 'compressed_only' || !image.compressed || image.originalUri === image.uri) {
+      return [compressed];
+    }
+    return [
+      compressed,
+      {
+        type: 'file',
+        filename: originalImageFilename(image.originalFilename, index),
+        localUri: image.originalUri,
+        mime: image.originalMime,
+        captured_at: capturedAt,
+        sync_hint: policy === 'wifi_original' ? 'wifi_only' : undefined,
+      },
+    ];
+  });
+}
+
+function voiceCaptureAttachments(voices: PendingVoice[], content: string): CaptureAttachment[] {
+  return voices.map((voice, index) => ({
+    type: 'audio',
+    filename: voices.length === 1 ? 'audio.m4a' : `audio-${index + 1}.m4a`,
+    localUri: voice.uri,
+    mime: 'audio/m4a',
+    duration_ms: voice.durationMs ?? undefined,
+    recorded_at: voice.recordedAt,
+    transcription: (voice.transcription ?? content) || undefined,
+    transcription_source: voice.transcriptionSource ?? (content ? 'manual' : undefined),
+  }));
+}
+
+function fallbackContent({
+  hasImages,
+  hasVoices,
+}: {
+  hasImages: boolean;
+  hasVoices: boolean;
+}): string {
+  if (hasVoices && hasImages) return '图文语音记录';
+  if (hasVoices) return '语音记录';
+  return '';
+}
+
+function formatDuration(durationMs: number | null | undefined): string {
+  if (!durationMs || durationMs < 1000) return '0:01';
+  const totalSeconds = Math.max(1, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
 function originalImageFilename(filename: string, index: number): string {
   const safe = filename.replace(/[^a-zA-Z0-9._-]/g, '-');
   const extension = safe.includes('.') ? safe.split('.').filter(Boolean).at(-1) : 'jpg';
@@ -359,15 +449,15 @@ function originalImageFilename(filename: string, index: number): string {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
+    backgroundColor: '#f8fafc',
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingTop: 8,
   },
   topBar: {
     alignItems: 'center',
     flexDirection: 'row',
-    height: 32,
+    height: 30,
     justifyContent: 'space-between',
   },
   status: {
@@ -391,12 +481,12 @@ const styles = StyleSheet.create({
   restored: {
     color: '#0f766e',
     fontSize: 13,
-    marginTop: 8,
+    marginTop: 6,
   },
   clipboard: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     borderColor: '#cbd5e1',
-    borderRadius: 14,
+    borderRadius: 8,
     borderWidth: 1,
     marginTop: 8,
     padding: 12,
@@ -421,85 +511,122 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 8,
   },
+  composer: {
+    backgroundColor: '#ffffff',
+    borderColor: '#dbe3ef',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    flex: 1,
+    marginTop: 10,
+    overflow: 'hidden',
+  },
   input: {
     flex: 1,
     fontSize: 22,
     lineHeight: 31,
-    paddingVertical: 24,
+    paddingBottom: 12,
+    paddingHorizontal: 18,
+    paddingTop: 18,
+  },
+  previewRail: {
+    flexGrow: 0,
+    maxHeight: 90,
+  },
+  previewRailContent: {
+    gap: 10,
+    paddingBottom: 12,
+    paddingHorizontal: 14,
+    paddingTop: 4,
+  },
+  imagePreview: {
+    borderRadius: 8,
+    height: 76,
+    width: 76,
+  },
+  imageThumb: {
+    backgroundColor: '#e2e8f0',
+    borderRadius: 8,
+    height: 76,
+    width: 76,
+  },
+  removeButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 23, 42, 0.82)',
+    borderRadius: 12,
+    height: 24,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: -6,
+    top: -6,
+    width: 24,
+  },
+  voicePreview: {
+    alignItems: 'center',
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 8,
+    height: 44,
+    paddingLeft: 12,
+    paddingRight: 8,
+  },
+  voicePreviewText: {
+    color: '#4338ca',
+    fontSize: 13,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '800',
+  },
+  voiceRemoveButton: {
+    alignItems: 'center',
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
   },
   bottomBar: {
     alignItems: 'center',
     borderTopColor: '#e2e8f0',
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
-    gap: 18,
-    minHeight: 58,
-    paddingTop: 10,
-  },
-  disabledAction: {
-    fontSize: 24,
-    opacity: 0.35,
-  },
-  dismissButton: {
-    alignItems: 'center',
-    borderColor: '#cbd5e1',
-    borderRadius: 999,
-    borderWidth: 1,
+    gap: 10,
+    minHeight: 62,
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
-  dismissButtonPressed: {
-    backgroundColor: '#f8fafc',
+  iconButton: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#cbd5e1',
+    borderRadius: 14,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
   },
-  dismissText: {
-    color: '#334155',
-    fontSize: 13,
-    fontWeight: '700',
+  iconButtonDisabled: {
+    opacity: 0.35,
+  },
+  iconButtonPressed: {
+    transform: [{ scale: 0.96 }],
+  },
+  recordingButton: {
+    backgroundColor: '#fff1f2',
+    borderColor: '#fecdd3',
   },
   saveButton: {
     alignItems: 'center',
     backgroundColor: '#111827',
-    borderRadius: 999,
+    borderRadius: 14,
+    height: 44,
+    justifyContent: 'center',
     marginLeft: 'auto',
-    minWidth: 88,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    width: 52,
   },
   saveButtonDisabled: {
     opacity: 0.35,
   },
   saveButtonPressed: {
-    opacity: 0.75,
-  },
-  saveText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  longRecordButton: {
-    alignItems: 'center',
-    backgroundColor: '#fee2e2',
-    borderRadius: 999,
-    flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-  },
-  longRecordButtonDisabled: {
-    opacity: 0.4,
-  },
-  longRecordButtonPressed: {
-    opacity: 0.78,
-  },
-  longRecordDot: {
-    backgroundColor: '#ef4444',
-    borderRadius: 5,
-    height: 9,
-    width: 9,
-  },
-  longRecordText: {
-    color: '#dc2626',
-    fontSize: 13,
-    fontWeight: '800',
+    transform: [{ scale: 0.96 }],
   },
 });

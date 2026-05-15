@@ -17,7 +17,7 @@
 - **定位**：手机只做 BASB 方法论里的 **C 阶段（Capture）** ——随时记录灵感、想法、见闻、语音、图片
 - **不做**：编辑、执行、终端、agent 对话、Kanban——这些是桌面端的职责
 - **核心价值**：让用户在地铁、排队、开会、深夜床上的碎片时刻，能在 **1 秒内**从想到"我要记一下"进入输入状态
-- **数据去向**：所有 capture 通过 iCloud Drive 同步回 Mac 端 Orbit，进入 Inbox → Thoughts
+- **数据去向**：所有 capture 通过 iCloud Drive 同步回 Mac 端 Orbit，直接 materialize 为 Notes，并通过 `note.created` 展示在 Timeline
 
 **详细愿景见 [`docs/VISION.md`](./docs/VISION.md)。任何方向性改动前必读。**
 

@@ -22,6 +22,7 @@ interface NativeICloudBridgeModule {
   getUploadStatus(remotePath: string): Promise<Record<string, unknown>>;
   fileExists(remotePath: string): Promise<boolean>;
   readTextFile(remotePath: string): Promise<string | null>;
+  deleteRemotePath(remotePath: string): Promise<void>;
 }
 
 let nativeModule: NativeICloudBridgeModule | null | undefined;
@@ -109,6 +110,14 @@ export async function readTextFile(remotePath: string): Promise<string | null> {
     return null;
   }
   return native.readTextFile(remotePath);
+}
+
+export async function deleteRemotePath(remotePath: string): Promise<void> {
+  const native = getNativeModule();
+  if (native === null) {
+    return;
+  }
+  await native.deleteRemotePath(remotePath);
 }
 
 export function subscribeToChanges(

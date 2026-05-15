@@ -8,6 +8,7 @@ export function requireNativeModule<T>(name: string): T {
         Promise.resolve({ exists: false, uploaded: false, uploading: false, remotePath }),
       fileExists: () => Promise.resolve(false),
       readTextFile: () => Promise.resolve(null),
+      deleteRemotePath: () => Promise.resolve(),
     } as T;
   }
   return {

@@ -29,6 +29,7 @@ export interface CaptureAttachment {
   height?: number;
   captured_at?: string;
   original_exif?: Record<string, unknown>;
+  sync_hint?: 'wifi_only';
   schema?: string;
   derivative_kind?: string;
   template_id?: string;
@@ -49,6 +50,7 @@ export interface ManifestAttachment {
   height?: number;
   captured_at?: string;
   original_exif?: Record<string, unknown>;
+  sync_hint?: 'wifi_only';
   schema?: string;
   derivative_kind?: string;
   template_id?: string;

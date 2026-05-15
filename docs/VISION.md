@@ -17,7 +17,7 @@
 它**是**：
 - BASB (Building a Second Brain) 方法论里 **Capture** 阶段的移动端专用入口
 - 用户在 Mac 不在手边时的"思维暂存器"
-- 数据通过 iCloud Drive 流回桌面端 Orbit，进入正式的 Inbox → Thoughts 工作流
+- 数据通过 iCloud Drive 流回桌面端 Orbit，直接成为正式 Notes，并通过 Timeline 呈现
 
 ---
 
@@ -132,8 +132,8 @@ Orbit 桌面端已经完整实现了 BASB 的 CODE 四阶段——但整个工�
                          ↓
        ┌───────────────────────────────────────┐
        │  Mac Orbit: mobile_inbound watcher     │
-       │    ingest → ThoughtService.create()    │
-       │    → Inbox → Thoughts                  │
+       │    ingest → NoteStore.create()         │
+       │    → notes/* + note.created Timeline   │
        └───────────────────────────────────────┘
                          ↓
        Mac 移动 inbox/<id> → processed/<id>
@@ -198,13 +198,13 @@ Orbit Mobile 是 Orbit 生态的**专用卫星**，不是独立产品：
 
 | 方面 | 说明 |
 |---|---|
-| **数据格式** | 完全兼容 Orbit ThoughtPayload / InboxItem schema |
-| **数据流向** | iOS → iCloud Drive → Mac Orbit `mobile_inbound` watcher → `ThoughtService.create()` → 正式 Inbox |
+| **数据格式** | 完全兼容 Orbit Mobile manifest v1 + Orbit Note / Synthesis / TraceableEvent schema |
+| **数据流向** | iOS → iCloud Drive → Mac Orbit `mobile_inbound` watcher → `NoteStore.create()` → `note.created` Timeline |
 | **用户心智** | "Capture 前哨"——所有 Mac 端 Quick Capture (`⌘⇧I`) 能做的事，手机上也能做，且有移动端独有的输入形态 |
 | **版本关系** | 独立迭代节奏；需要 Mac 端配合时通过 ADR 记录改动点 |
 | **无障碍** | 用户没有 Mac 端？iOS 数据仍完整保存在设备和 iCloud，随时可启用 Mac 端接收 |
 
-Mac 端需要的改动集中在一个新模块 `src/main/capture/mobile_inbound/`，详见 [`ORBIT-INTEGRATION.md`](./ORBIT-INTEGRATION.md)。
+Mac 端需要的改动集中在 `src/main/capture/mobile_inbound/`，详见 [`ORBIT-INTEGRATION.md`](./ORBIT-INTEGRATION.md)。
 
 ---
 

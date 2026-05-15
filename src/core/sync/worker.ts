@@ -1,5 +1,6 @@
 import type { CaptureRow } from '../../types/capture';
 import { isoNow } from '../../utils/time';
+import * as aiTasksRepo from '../storage/ai-tasks-repo';
 import * as capturesRepo from '../storage/captures-repo';
 import * as eventsRepo from '../storage/events-repo';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
@@ -80,22 +81,31 @@ export async function processOneCapture(
 ): Promise<'uploaded' | 'failed' | 'acked' | 'conflicted'> {
   const { db, transport, now } = options;
 
-  const remoteFailure = await transport.readFailure(capture.id);
-  if (remoteFailure !== null) {
-    return applyRemoteFailure(db, capture, remoteFailure, now);
-  }
-
   const ack = await transport.readAck(capture.id);
   if (ack !== null) {
     await capturesRepo.updateSyncState(db, capture.id, {
       sync_state: 'acked',
       acked_at: typeof ack.acked_at === 'string' ? ack.acked_at : isoNow(),
-      ack_vault_path: typeof ack.vault_path === 'string' ? ack.vault_path : null,
+      ack_vault_path:
+        typeof ack.note_path === 'string'
+          ? ack.note_path
+          : typeof ack.vault_note_path === 'string'
+            ? ack.vault_note_path
+            : typeof ack.vault_path === 'string'
+              ? ack.vault_path
+              : null,
       sync_last_error: null,
       sync_next_retry_at: null,
     });
     await eventsRepo.append(db, capture.id, 'ack', ack);
     return 'acked';
+  }
+
+  if (capture.sync_state === 'uploaded') {
+    const remoteFailure = await transport.readFailure(capture.id);
+    if (remoteFailure !== null) {
+      return applyRemoteFailure(db, capture, remoteFailure, now);
+    }
   }
 
   if (capture.sync_state === 'uploaded') {
@@ -118,6 +128,7 @@ export async function processOneCapture(
       throw new Error(`icloud_unavailable:${containerStatus.reason ?? 'unknown'}`);
     }
 
+    await transport.clearFailure(capture.id);
     const upload = await transport.uploadCapture(capture);
     if (!upload.uploaded) {
       throw new Error(`icloud_upload_pending:${upload.remotePath}`);
@@ -158,6 +169,13 @@ export async function runSyncTick(options: SyncTickOptions = {}): Promise<SyncTi
   ].slice(0, batchSize);
 
   for (const capture of candidates) {
+    if (
+      capture.kind === 'recording'
+      && capture.sync_state !== 'uploaded'
+      && await aiTasksRepo.hasBlockingTask(db, capture.id)
+    ) {
+      continue;
+    }
     const status = await processOneCapture(capture, { db, transport, now });
     result.processed += 1;
     result[status] += 1;

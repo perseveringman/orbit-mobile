@@ -38,7 +38,7 @@ function syncLabel(counts: SyncStatusCounts, container: iCloudBridge.ICloudConta
     return `${counts.pending} 条等待同步`;
   }
   if (counts.uploaded > 0) {
-    return `${counts.uploaded} 条已上传，等待 Mac 接收`;
+    return `${counts.uploaded} 条已上传，等待 Mac 写入 Notes`;
   }
   return '同步正常';
 }
