@@ -94,8 +94,10 @@ source:
 Note body policy:
 
 - Include original user content.
-- Include transcript excerpt when a transcript artifact exists.
-- Include links to source attachments such as images, audio, transcript JSON, and other non-AI files.
+- Include transcript excerpt only when a transcript artifact has usable text.
+- Include links to human-facing source attachments such as compressed display images, audio, and regular files.
+- Copy original image source files such as `original-photo-1.heic` for provenance, but do not expose them in the Note body by default.
+- Copy technical transcript source files such as `partial-transcript.ndjson` and `final-transcript.json` for provenance, but do not expose them in the Note body by default.
 - Do **not** write DeepSeek summary, decisions, risks, todos, or custom derivative content into the Note body by default.
 
 AI derivative policy:
@@ -195,4 +197,4 @@ Timeline is a projection over `TraceableEvent`; it is not a truth store. The Not
 - Desktop verifies all hashes and materializes a Note under `notes/*`.
 - Desktop publishes `note.created`; Timeline shows the capture on its original `created_at` day.
 - Desktop writes ACK v2; iOS shows `✓ 已到 Notes`.
-- Recording captures keep source transcript/audio in Note body and attachments; DeepSeek derivatives appear in Note Workbench, not as default Note body text.
+- Recording captures keep readable transcript excerpts and audio in Note body; photo captures show display images while original image files remain in attachments for provenance; technical transcript JSON remains in attachments for provenance; DeepSeek derivatives appear in Note Workbench, not as default Note body text.
