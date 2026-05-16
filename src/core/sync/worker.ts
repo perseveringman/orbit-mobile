@@ -89,11 +89,13 @@ export async function processOneCapture(
       ack_vault_path:
         typeof ack.note_path === 'string'
           ? ack.note_path
-          : typeof ack.vault_note_path === 'string'
-            ? ack.vault_note_path
-            : typeof ack.vault_path === 'string'
-              ? ack.vault_path
-              : null,
+          : typeof ack.library_item_path === 'string'
+            ? ack.library_item_path
+            : typeof ack.vault_note_path === 'string'
+              ? ack.vault_note_path
+              : typeof ack.vault_path === 'string'
+                ? ack.vault_path
+                : null,
       sync_last_error: null,
       sync_next_retry_at: null,
     });

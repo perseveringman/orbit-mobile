@@ -12,9 +12,10 @@ The current design is:
 Orbit Mobile local capture
   -> iCloud Drive transport queue: Documents/inbox/<capture_id>/
   -> desktop mobile_inbound verifies manifest + attachments
-  -> desktop materializes a Note under notes/*
-  -> desktop publishes note.created
-  -> Timeline shows the Note event
+  -> desktop materializes thoughts/recordings/photos as Notes
+  -> desktop materializes URL shares as Library items
+  -> desktop publishes note.created or library.item.added
+  -> Timeline shows the Layer 1 event
   -> desktop writes processed/<capture_id>/.acked
 ```
 
@@ -43,8 +44,9 @@ Responsibilities:
 - Verify `manifest.json.sha256`.
 - Verify every attachment relative path, `sha256`, and `byte_size`.
 - Copy attachments into `<vault>/.orbit/capture/attachments/<capture_id>/`.
-- Create or reuse a stable Note, currently `note-<capture_id>`.
-- Publish `note.created` so Timeline displays the capture.
+- Create or reuse a stable Note for non-link captures, currently `note-<capture_id>`.
+- Create or reuse a stable Library item for URL shares, currently `lib-<capture_id>`.
+- Publish `note.created` or `library.item.added` so Timeline displays the Layer 1 materialization.
 - Move iCloud input to `processed/<capture_id>/` and write ACK v2.
 - Move invalid input to `failed/<capture_id>/` and write `.failed.json`.
 
@@ -75,13 +77,15 @@ Mobile always writes local SQLite + filesystem first. iCloud only receives compl
 
 ## 3. Materialization Rules
 
-Desktop maps mobile capture kinds to Notes:
+Desktop maps mobile capture kinds to Layer 1 artifacts:
 
-| Mobile kind | Desktop Note type |
+| Mobile kind | Desktop artifact |
 |---|---|
-| `thought` | `thought` |
-| `voice` / `recording` | `voice_log` |
-| `photo` / `share` / `mixed` | `capture` |
+| `thought` | Note `thought` |
+| `voice` / `recording` | Note `voice_log` |
+| `photo` / `mixed` | Note `capture` |
+| `share` with URL | Library item `article` |
+| `share` without URL | Note `capture` fallback |
 
 The Note frontmatter uses:
 
@@ -91,10 +95,17 @@ source:
   ref: <capture_id>
 ```
 
+URL share policy:
+
+- The mobile manifest remains a local-first source handoff; iOS does not parse the remote page.
+- Desktop creates a Library item with `source.kind = share`, `source.capture_id`, `source.url`, `source.canonical_url`, raw share text, origin app, parser hint, connector id/version, and parse status.
+- Desktop parsing is handled by the shared Content Connector layer used by both Library and Feed. OpenCLI is the first external connector target; built-in best-effort parsing remains a fallback.
+- Connector failure never fails mobile ingest or ACK. The Library item still contains the original URL/raw share text and a visible `content_status/content_error`.
+- Successful parsing writes a source snapshot under `<vault>/.orbit/content/extracted/.../source.md`, referenced by `source_snapshot_ref`.
+
 Note body policy:
 
 - Include original user content.
-- If `context.share_context` identifies `wechat_article`, `xiaohongshu`, or `x`, desktop may run a best-effort source enrichment parser and include a `## Source` section plus a parsed artifact link. Parser failure must not fail mobile ingest or ACK.
 - Include transcript excerpt only when a transcript artifact has usable text.
 - Include links to human-facing source attachments such as compressed display images, audio, and regular files.
 - Copy original image source files such as `original-photo-1.heic` for provenance, but do not expose them in the Note body by default.
@@ -115,7 +126,7 @@ This keeps the Note's ground truth body source-first while still making mobile D
 
 ## 4. ACK v2
 
-Desktop success ACK:
+Desktop success ACK for a Note:
 
 ```json
 {
@@ -131,11 +142,27 @@ Desktop success ACK:
 }
 ```
 
+Desktop success ACK for a Library item:
+
+```json
+{
+  "schema_version": 2,
+  "acked_at": "2026-05-17T10:32:15.123Z",
+  "artifact_kind": "library_item",
+  "library_item_id": "lib-mob_cap_xxx",
+  "library_item_path": "library/articles/article-title.md",
+  "timeline_event_id": "mobile-capture-library:mob_cap_xxx",
+  "vault_path": "/Users/ryanbzhou/.../MyVault",
+  "mac_identity": "MacBook-Pro-Ryan",
+  "orbit_version": "1.0.0"
+}
+```
+
 iOS behavior:
 
 - Read ACK before reading failure state.
 - Mark capture `acked`.
-- Store `ack_vault_path` as `note_path` when present, falling back to legacy `vault_note_path` / `vault_path`.
+- Store `ack_vault_path` as `note_path` or `library_item_path` when present, falling back to legacy `vault_note_path` / `vault_path`.
 - Treat ACK as terminal success. A stale `.failed.json` cannot override ACK.
 
 Legacy compatibility:
@@ -170,7 +197,7 @@ Retry semantics:
 
 ## 6. Timeline Contract
 
-Desktop publishes:
+For Notes, desktop publishes:
 
 ```ts
 publishTraceableEvent({
@@ -187,6 +214,24 @@ publishTraceableEvent({
 });
 ```
 
+For URL shares, desktop publishes:
+
+```ts
+publishTraceableEvent({
+  id: `mobile-capture-library:${captureId}`,
+  at: manifest.created_at,
+  source: 'activity',
+  kind: 'library.item.added',
+  payload: {
+    item_id: libraryItem.frontmatter.id,
+    path: libraryItem.path,
+    title: libraryItem.frontmatter.title,
+    url: libraryItem.frontmatter.url,
+    status: libraryItem.frontmatter.status
+  }
+});
+```
+
 Timeline is a projection over `TraceableEvent`; it is not a truth store. The Note file is the Layer 1 truth.
 
 ---
@@ -195,7 +240,7 @@ Timeline is a projection over `TraceableEvent`; it is not a truth store. The Not
 
 - iPhone saves text capture while offline: local data remains complete, sync waits.
 - iPhone uploads `inbox/<id>/` after iCloud is available.
-- Desktop verifies all hashes and materializes a Note under `notes/*`.
-- Desktop publishes `note.created`; Timeline shows the capture on its original `created_at` day.
-- Desktop writes ACK v2; iOS shows `✓ 已到 Notes`.
+- Desktop verifies all hashes and materializes the capture as a Note or Library item.
+- Desktop publishes `note.created` / `library.item.added`; Timeline shows the capture on its original `created_at` day.
+- Desktop writes ACK v2; iOS shows `✓ 已到 Orbit`.
 - Recording captures keep readable transcript excerpts and audio in Note body; photo captures show display images while original image files remain in attachments for provenance; technical transcript JSON remains in attachments for provenance; DeepSeek derivatives appear in Note Workbench, not as default Note body text.

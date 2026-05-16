@@ -139,7 +139,7 @@
 
 - [x] 在 Orbit 仓库新开 PR：`src/main/capture/mobile_inbound/`
   - `watcher.ts` — chokidar 监听 iCloud inbox
-  - `ingest.ts` — 解析 manifest → materialize Note + `note.created`
+  - `ingest.ts` — 解析 manifest → 普通 capture materialize Note + `note.created`；URL share materialize Library item + `library.item.added`
   - `attachments.ts` — 附件复制到 `<vault>/.orbit/capture/attachments/`
   - `config.ts` — iCloud 路径探测
 - [x] Mac 端 ingest 成功 → 移动到 `processed/<id>/`
@@ -150,9 +150,9 @@
 - [ ] Mac 端 Dashboard 加卡片"今日来自手机 N 条"（MVP 端到端闭环后补 UI 卡片）
 
 **验收**：
-- iPhone 保存 → 自动出现在 Mac Notes，并在 Timeline 同日展示
+- iPhone 保存 → 普通 capture 自动出现在 Mac Notes，URL share 自动出现在 Mac Library，并在 Timeline 同日展示
 - 全流程 10 秒内完成（正常网络）
-- iOS 端看到 ✓ 已到 Notes
+- iOS 端看到 ✓ 已到 Orbit
 
 ---
 

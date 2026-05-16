@@ -271,10 +271,11 @@ Mac 端 `mobile_inbound` watcher：
 4. 校验 `manifest.json.sha256`
 5. 校验所有 attachment 的安全相对路径、文件存在性、`sha256` 和 `byte_size`
 6. 复制附件到 `<vault>/.orbit/capture/attachments/<id>/`
-7. 创建或复用稳定 Note（`thought` → `notes/thoughts`，`voice/recording` → `notes/voice_logs`，`photo/share/mixed` → `notes/captures`）
+7. 创建或复用稳定 Layer 1 artifact：普通/录音/图片 capture 进 Note；带 URL 的 `share` 进 Library item（`lib-<capture_id>`）
 8. 对 `recording` capture 读取 `transcript` / `derivative` artifact：转写摘录和源附件进入 Note 正文；DeepSeek 总结、决策、风险、待办、自定义笔记进入 Note Workbench / Synthesis，不默认写入正文
-9. 发布 `note.created` TraceableEvent，让 Timeline 展示该 capture
-10. 成功：清理旧 `failed/<id>`，**移动** `inbox/<id>/` 到 `processed/<id>/`，同时写 ACK v2：
+9. 对 URL share 读取 `context.share_context`，交给 Mac 端 Content Connector 层解析；OpenCLI / 内置解析等 connector 可逐层降级，解析失败不影响 ACK
+10. 发布 `note.created` 或 `library.item.added` TraceableEvent，让 Timeline 展示该 capture
+11. 成功：清理旧 `failed/<id>`，**移动** `inbox/<id>/` 到 `processed/<id>/`，同时写 ACK v2。Note ACK：
    ```json
    {
      "schema_version": 2,
@@ -288,7 +289,21 @@ Mac 端 `mobile_inbound` watcher：
      "orbit_version": "1.0.0"
    }
    ```
-11. 失败：移动到 `failed/<id>/`，写 `.failed.json`：
+   Library ACK：
+   ```json
+   {
+     "schema_version": 2,
+     "acked_at": "2026-05-17T10:32:15.123Z",
+     "artifact_kind": "library_item",
+     "library_item_id": "lib-mob_cap_xxx",
+     "library_item_path": "library/articles/article-title.md",
+     "timeline_event_id": "mobile-capture-library:mob_cap_xxx",
+     "vault_path": "/Users/.../vault",
+     "mac_identity": "MacBook-Pro-Ryan",
+     "orbit_version": "1.0.0"
+   }
+   ```
+12. 失败：移动到 `failed/<id>/`，写 `.failed.json`：
    ```json
    {
      "failed_at": "2026-05-06T10:32:15.123Z",
@@ -330,7 +345,7 @@ iCloudBridge.subscribeToChanges('failed/', (event) => {
 
 **ACK 优先级**：每次 tick 都先查 `processed/<id>/.acked`，再查 `failed/<id>/.failed.json`。如果 iCloud 里同时残留 ACK 和旧 failure，ACK 胜出并把本地 capture 标记为 `acked`。
 
-**ACK 路径语义**：schema v2 时，iOS 把 `note_path` 记录为本地 `ack_vault_path`，用于展示“已到 Mac Notes”。legacy schema v1 仍回退读取 `vault_note_path` / `vault_path`。
+**ACK 路径语义**：schema v2 时，iOS 把 `note_path` 或 `library_item_path` 记录为本地 `ack_vault_path`，用于展示“已到 Orbit”。legacy schema v1 仍回退读取 `vault_note_path` / `vault_path`。
 
 **重传清理**：retryable failure 到期重传时，iOS 先删除远端 `failed/<id>`，再重新上传完整本地 capture 到 `inbox/<id>`；这样不会让旧失败在下一轮 tick 中覆盖新上传。
 

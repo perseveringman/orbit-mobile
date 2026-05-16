@@ -8,6 +8,8 @@ export interface AckInfo {
   vault_path?: string;
   note_id?: string;
   note_path?: string;
+  library_item_id?: string;
+  library_item_path?: string;
   timeline_event_id?: string;
   inbox_item_id?: string;
   vault_note_path?: string;

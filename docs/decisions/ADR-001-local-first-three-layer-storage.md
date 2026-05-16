@@ -4,10 +4,11 @@
 - **Date**: 2026-05-06
 - **Author**: BoxAI + user (original discussion)
 - **Update 2026-05-15**: Mobile-to-Mac materialization semantics are superseded by [ADR-005](./ADR-005-mobile-captures-materialize-as-notes.md): iCloud `inbox/` is transport-only, and desktop Orbit writes Notes + Timeline events rather than Inbox Thoughts.
+- **Update 2026-05-17**: [ADR-008](./ADR-008-mobile-link-shares-materialize-as-library-items.md) carves URL share captures out of ADR-005: they materialize as Library items and publish `library.item.added`.
 
 ## Context
 
-Orbit Mobile 的定位在 2026-05-06 的项目初立对话中被收敛为"Orbit 桌面端的 iOS Capture 前哨"——只做 BASB 方法论里的 Capture 阶段，承接用户在 Mac 不在手边时的"碎片时刻"输入，并把数据回流给桌面端 Orbit。早期接入目标是 `ThoughtService`，2026-05-15 后由 ADR-005 更新为 Notes + Timeline。详见 [`VISION.md`](../VISION.md) 与 [`thinking-trail/2026-05-06-project-inception`](../thinking-trail/2026-05-06-project-inception/README.md)。
+Orbit Mobile 的定位在 2026-05-06 的项目初立对话中被收敛为"Orbit 桌面端的 iOS Capture 前哨"——只做 BASB 方法论里的 Capture 阶段，承接用户在 Mac 不在手边时的"碎片时刻"输入，并把数据回流给桌面端 Orbit。早期接入目标是 `ThoughtService`，2026-05-15 后由 ADR-005 更新为 Notes + Timeline；2026-05-17 起 URL share 由 ADR-008 更新为 Library item + Timeline。详见 [`VISION.md`](../VISION.md) 与 [`thinking-trail/2026-05-06-project-inception`](../thinking-trail/2026-05-06-project-inception/README.md)。
 
 在对话推进过程中，用户最初提出"iOS Capture 的内容仅存 iCloud，Mac 端能否获取到完整数据"的方案设想。初步回答确认 iCloud Drive + Document-based app + `chokidar` 监听的技术路径可行、零服务端。但用户紧接着加码了一条**不可妥协的底线**：
 
@@ -82,7 +83,7 @@ Orbit Mobile 的定位在 2026-05-06 的项目初立对话中被收敛为"Orbit 
 - **离线完全可用**：飞行模式、无 iCloud 账号、iCloud 空间满的所有场景下，Capture 核心流程零降级
 - **崩溃可恢复**：原子写入协议 + WAL + 启动 ReconcileJob 保证输入被杀、保存断电、rename 中途崩溃等场景数据完整
 - **零服务端**：继续符合 Orbit "不做专有云存储"原则，无运维、无账号、无隐私政策负担
-- **桌面端接入面小**：Mac 端只需新增 `src/main/capture/mobile_inbound/` 一个 watcher 模块消费 iCloud transport queue；具体 materialization 目标已由 ADR-005 更新为 Notes + Timeline
+- **桌面端接入面小**：Mac 端只需新增 `src/main/capture/mobile_inbound/` 一个 watcher 模块消费 iCloud transport queue；具体 materialization 目标由 ADR-005/ADR-008 更新为非 URL capture 进 Notes、URL share 进 Library，并统一发布 Timeline 事件
 - **用户永远可脱离 Mac 端**：Layer 2 就是完整数据库，用户今天不用 Mac 端、一年后再启用，数据完整
 - **AI 友好**：manifest + 校验和 + 原材料保留，桌面端 agent 消费时有完整上下文
 

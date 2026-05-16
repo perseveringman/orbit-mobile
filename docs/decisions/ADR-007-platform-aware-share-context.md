@@ -1,7 +1,7 @@
 # ADR-007 — Platform-Aware Share Context for Mac-Side Source Enrichment
 
 **Date**: 2026-05-16  
-**Status**: accepted
+**Status**: accepted; amended by ADR-008 for Library materialization
 
 ## Context
 
@@ -23,8 +23,8 @@ Orbit Mobile will treat these shares as durable source handoff captures:
    - `source_url` and `canonical_url`
    - raw share text and optional LinkPresentation title
    - `enrichment_state: "pending"`
-4. Mac Orbit reads `context.share_context` and runs best-effort source enrichment after manifest/hash/attachment verification.
-5. Mac-side source enrichment failure never fails ingest or ACK. The original capture remains the truth source.
+4. Mac Orbit reads `context.share_context`, creates a Library item for URL shares, and runs best-effort parsing through desktop Content Connectors after manifest/hash/attachment verification.
+5. Mac-side parsing failure never fails ingest or ACK. The original mobile capture remains the transport/provenance source, and the Library item keeps the URL/raw share text.
 
 ## Consequences
 

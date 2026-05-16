@@ -157,6 +157,34 @@ describe('sync worker', () => {
     });
   });
 
+  it('stores Library item paths from Mac ACK v2', async () => {
+    const db = await createMigratedTestDb();
+    const transport = new FakeTransport();
+    transport.ack = {
+      schema_version: 2,
+      acked_at: '2026-05-17T00:10:00.000Z',
+      artifact_kind: 'library_item',
+      library_item_id: 'lib-mob_cap_share',
+      library_item_path: 'library/articles/mobile-share.md',
+      timeline_event_id: 'mobile-capture-library:mob_cap_share',
+      vault_path: '/vault',
+    };
+    await capturesRepo.insert(db, captureInput('mob_cap_share', {
+      local_path: '/local/mob_cap_share',
+      sync_state: 'uploaded',
+    }));
+
+    const result = await runSyncTick({ db, transport, now: new Date('2026-05-17T00:11:00.000Z') });
+
+    const row = await capturesRepo.get(db, 'mob_cap_share');
+    expect(result).toMatchObject({ processed: 1, acked: 1, failed: 0 });
+    expect(row).toMatchObject({
+      sync_state: 'acked',
+      acked_at: '2026-05-17T00:10:00.000Z',
+      ack_vault_path: 'library/articles/mobile-share.md',
+    });
+  });
+
   it('applies non-retryable Mac failures as conflicted', async () => {
     const db = await createMigratedTestDb();
     const transport = new FakeTransport();

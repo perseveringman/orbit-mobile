@@ -16,7 +16,7 @@ const LABELS: Record<SyncState, string> = {
   pending: '○ 本地',
   syncing: '↑ 同步中',
   uploaded: '↑✓ 已上传',
-  acked: '✓ 已到 Notes',
+  acked: '✓ 已到 Orbit',
   failed: '⚠ 失败',
   conflicted: '⛔ 冲突',
 };

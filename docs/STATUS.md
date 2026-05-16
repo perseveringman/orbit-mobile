@@ -3,7 +3,7 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-16（最近列表 Markdown 阅读态）
+**Last updated**: 2026-05-17（URL share 入 Mac Library + connector ACK）
 **Last updater**: Codex
 **Current milestone**: **M0-M9 — local code complete; DeepSeek AI notes implemented; X1 BLE file import + realtime capture code complete**
 **Next milestone**: 真机/iCloud/TestFlight 验收 + 纽曼 X1 实时录音端到端复测 + direct X1 audio transcription / diarization provider 选择
@@ -19,7 +19,7 @@ M7/M8 已接入原生入口：Share Extension 只写 App Group `share-inbox/` �
 TestFlight 前优先验收：
 
 1. Development Build 真机：打开 app → 输入 → 保存 → 杀进程 → 重启 → 数据完整
-2. iCloud Drive 真机：保存后 Finder 可见 `inbox/<id>/`，Mac inbound 自动 materialize Note、发布 Timeline，并写 ACK v2
+2. iCloud Drive 真机：保存后 Finder 可见 `inbox/<id>/`，Mac inbound 自动 materialize Note 或 Library item、发布 Timeline，并写 ACK v2
 3. Share Extension 真机：Safari/text/image → Orbit → 保存后主 app 列表可见
 4. Widget 真机：主屏/锁屏 Widget deep link 到 Capture，锁屏到输入 <2 秒
 5. 录音异常恢复真机：录音中杀进程 → 重开录音列表 → 提示保存/丢弃未保存录音
@@ -46,7 +46,7 @@ TestFlight 前优先验收：
 - 2026-05-14 已新增 app 级 `AppBootstrap`：主 app 启动、回前台和 60s 心跳都会执行 Share inbox 导入、reconcile、自愈后 Widget snapshot 写入、以及一次 SyncWorker tick；`useSyncStatus()` 默认只轮询状态，不再每 5s 隐式跑 worker。
 - `src/utils/logger.ts` 已改为通过 `orbit-durable-fs.appendText()` 追加写，避免读-拼-写退化。
 - M4 已合入 `/Users/ryanbzhou/Developer/new-orbit` 的 `main`，merge commit `feat(mobile): 合并手机入站接入`；focused test `tests/mobile_inbound.test.ts` 通过。
-- 2026-05-15 已刷新 mobile → `/Users/ryanbzhou/Developer/new-orbit` 的入站链路：Mac 端 schema v1 现在支持 `recording`、`transcript` / `transcript-partial` / `derivative` artifact、附件逐文件 sha256 校验、直接 materialize Notes、发布 `note.created` Timeline、ACK v2、重复 ACK 幂等处理，以及成功重试后清理旧 `failed/<id>`。DeepSeek 派生笔记默认进入 Note Workbench / Synthesis，不写死进 Note 正文。
+- 2026-05-15 已刷新 mobile → `/Users/ryanbzhou/Developer/new-orbit` 的入站链路：Mac 端 schema v1 现在支持 `recording`、`transcript` / `transcript-partial` / `derivative` artifact、附件逐文件 sha256 校验、普通 capture 直接 materialize Notes、发布 `note.created` Timeline、ACK v2、重复 ACK 幂等处理，以及成功重试后清理旧 `failed/<id>`。DeepSeek 派生笔记默认进入 Note Workbench / Synthesis，不写死进 Note 正文。
 - M5/M6 已把附件纳入同一五阶段原子协议：语音 `.m4a` 和图片都会进入 `captures/<id>/` manifest attachments。
 - M5/M6 媒体保存现在会在写 SQLite 前复写并验证最终 capture 目录的 `manifest.json`、sha256 和附件；不完整时不会显示保存成功，既有坏记录会在启动 reconcile 中标为 `conflicted`。
 - Capture 主输入页现在是统一 composer：底部工具条全部改为图标，短语音是“按住转文字”并以语音附件 chip 留在 composer；图片选择支持多选并进入横向预览，不会立刻保存；文字、图片、语音可以一起保存为同一条 mixed capture。
@@ -61,6 +61,7 @@ TestFlight 前优先验收：
 - 详情页现在对 `failed` / `conflicted` capture 提供手动“重新同步”，会把状态重置为 `pending` 并立即跑一次 SyncWorker；设置页提供 iCloud 状态、sync state 计数、手动同步、手动自愈和“保留原图”开关。
 - M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`；2026-05-14 起主 app 导入是逐条容错、幂等的，失败条目会带 `.failed.json` 移入 `share-inbox-failed/`，URL 分享会尝试通过 `LinkPresentation` 补标题。
 - 2026-05-16 Share Extension / share inbox 新增平台感知 `context.share_context`：微信文章（`mp.weixin.qq.com`）、小红书（`xiaohongshu.com` / `xhslink.com`）和 X/Twitter（`x.com` / `twitter.com`）会写入 `source_platform`、`parser_hint`、原始 URL、canonical URL、分享文本和标题；手机端只做本地原子保存与同步，Mac Orbit inbound 再做 best-effort 解析，解析失败不影响 ACK。
+- 2026-05-17 Mac inbound 契约更新：带 URL 的 mobile share 不再 materialize 为 Note，而是进入 Mac Orbit Library；ACK v2 支持 `artifact_kind='library_item'` + `library_item_path`，iOS 同步层会把 `library_item_path` 写入 `ack_vault_path`，UI 文案统一为 `✓ 已到 Orbit`。Mac 端解析能力已抽成 Content Connector，OpenCLI 可作为首个外部 connector，内置解析作为 fallback。
 - M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget；2026-05-16 起主屏 small/medium 改为三入口快捷按钮：笔记 → `orbit-mobile://`，iPhone 录音 → `orbit-mobile://recording/new`，X1 录音 → `orbit-mobile://recording/x1-session`。Widget 只负责打开主 app，不写 SQLite / iCloud。
 - M9 长录音 UI 已从静态 mock 改为真实 Layer 2 数据：`recordings` 表 + `recording_annotations` 表 + `kind='recording'` capture + `audio.m4a` / `waveform.json` / `partial-transcript.ndjson` / `final-transcript.json` / 本地派生物附件。Recording Composer 以原始录音为最高优先级；iOS 录音与 Apple Speech 实时转写共用同一条 native 麦克风管线，实时波形来自同一麦克风 buffer 的 RMS/peak 采样，避免 `expo-av` 与 Speech 并发抢占音频会话；录音中页面已改为实时大纲和真实来源状态，未配置云端模型时使用透明的 `local-live-transcript` / `local-heuristic` 派生，不引入服务端。
 - `orbit-speech-recognition` 已新增 recoverable sidecar：录音开始写 `orbit-recording-*.json`，正常保存/取消会清理；app 被杀后下次进入录音列表会扫描残留 CAF/M4A 并提示保存或丢弃，保存继续走本地原子 capture。
@@ -205,13 +206,20 @@ TestFlight 前优先验收：
 | M1 本地存储层 | completed | M0 |
 | M2 原子写入 + 文本 Capture MVP | implemented; manual device validation pending | M1 |
 | M3 同步引擎 + iCloud Bridge | implemented; manual iCloud validation pending | M2 |
-| M4 Mac 端 ingest 接入 | Notes + Timeline ingest implemented; focused test passed; real iCloud E2E pending | M3 |
+| M4 Mac 端 ingest 接入 | Notes/Library + Timeline ingest implemented; focused test passed; real iCloud E2E pending | M3 |
 | M5 语音 Capture | implemented; Apple Speech true-device validation pending | M4 |
 | M6 图片 Capture | local native compression + image original policy implemented; true-device validation pending | M4 |
 | M7 Share Extension | implemented with idempotent/failure-tolerant import; true-device share sheet validation pending | M6 |
 | M8 便捷入口 | widget snapshot implemented; lock-screen/widget timing validation pending | M7 |
 | M9 长录音 + 录音笔记 UI | local implementation complete with persisted annotations, recovery, and DeepSeek AI notes; manual validation pending | M8 |
 | X1 录音笔 BLE 导入 | file import true-device validation passed; realtime MP3 capture code complete; realtime true-device save retest pending | M9 |
+
+### 2026-05-17 Share / Library ACK 更新
+
+- [x] iOS ACK parser 支持 schema v2 `artifact_kind='library_item'`
+- [x] `ack_vault_path` 优先记录 `note_path`，其次记录 `library_item_path`，再回退 legacy 路径
+- [x] 同步成功 UI 从 `✓ 已到 Notes` 改为 `✓ 已到 Orbit`
+- [x] Mac integration 文档改为：普通 capture 进 Notes，URL share 进 Library
 
 ---
 
@@ -221,9 +229,10 @@ TestFlight 前优先验收：
 - [ADR-002](./decisions/ADR-002-native-durable-fsync.md) — 2026-05-07 · **accepted** · M2 原子写入必须通过 native durable fsync，不允许 JS noop
 - [ADR-003](./decisions/ADR-003-native-icloud-drive-bridge.md) — 2026-05-07 · **accepted** · M3 使用本地 Expo native module 接入 iCloud Drive，不引入服务端
 - [ADR-004](./decisions/ADR-004-user-key-deepseek-ai-notes.md) — 2026-05-15 · **accepted** · 用户自持 Key 直连 DeepSeek V4 Flash 生成录音 AI 笔记
-- [ADR-005](./decisions/ADR-005-mobile-captures-materialize-as-notes.md) — 2026-05-15 · **accepted** · mobile capture 直接 materialize 为 Notes + Timeline，AI 派生默认进 Workbench
+- [ADR-005](./decisions/ADR-005-mobile-captures-materialize-as-notes.md) — 2026-05-15 · **accepted** · 非 URL mobile capture 直接 materialize 为 Notes + Timeline，AI 派生默认进 Workbench
 - [ADR-006](./decisions/ADR-006-two-mode-capture-interaction.md) — 2026-05-16 · **accepted** · 移动端拆成 Markdown Capture 与 Recording Session 两种 capture 模式
 - [ADR-007](./decisions/ADR-007-platform-aware-share-context.md) — 2026-05-16 · **accepted** · 小红书、微信文章、X 分享只在手机端标准化上下文，解析后置到 Mac Orbit
+- [ADR-008](./decisions/ADR-008-mobile-link-shares-materialize-as-library-items.md) — 2026-05-17 · **accepted** · 带 URL 的 mobile share 进入 Mac Library，ACK v2 支持 `library_item`
 
 ## 已有 Plans
 
