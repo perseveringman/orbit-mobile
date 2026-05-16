@@ -115,11 +115,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
   }, [customs, detail]);
 
   if (loading) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <Text style={styles.notFound}>正在读取本机录音…</Text>
-      </View>
-    );
+    return <View style={[styles.container, styles.center]} />;
   }
 
   if (!detail) {

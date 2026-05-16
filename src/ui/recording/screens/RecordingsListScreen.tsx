@@ -380,7 +380,6 @@ export function RecordingsListScreen({
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {loading ? <Text style={styles.hint}>正在读取本机录音…</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.entryGrid}>
           <View style={[styles.entryCard, styles.iphoneCard]}>

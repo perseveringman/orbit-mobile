@@ -3,7 +3,7 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-16（录音入口 chip 防省略）
+**Last updated**: 2026-05-16（去掉录音加载提示）
 **Last updater**: Codex
 **Current milestone**: **M0-M9 — local code complete; DeepSeek AI notes implemented; X1 BLE file import + realtime capture code complete**
 **Next milestone**: 真机/iCloud/TestFlight 验收 + 纽曼 X1 实时录音端到端复测 + direct X1 audio transcription / diarization provider 选择
@@ -79,6 +79,7 @@ TestFlight 前优先验收：
 - 2026-05-16 录音入口 X1 卡片新增自动探测连接：录音页可见时会周期性检查 X1 连接状态；未连接则自动扫描 AE20 服务或常见 X1 设备名，发现后先连接、同步时间、读取电量/固件/容量/MAC，再把卡片切到已连接信息态。该探测只建立连接和刷新设备信息，不会自动开始录音。
 - 2026-05-16 录音入口卡片内容精简：iPhone 卡片只保留“本机录音 · 实时转写”和 `原始音频 / Apple Speech / 本机保存` 三个 chip；X1 卡片只保留“打开录音卡并靠近 iPhone / 设备名”和状态 chip，已连接后展示 `电量 / 容量 / 固件`，避免入口页变成协议说明页。
 - 2026-05-16 录音入口 chip 防省略调整：iPhone 卡片将 `Apple Speech` 放到整行、`本机保存` 放半宽；X1 未连接态将 `靠近 iPhone` 放整行、`开机即连接` 放半宽；X1 已连接态将 `容量` 放整行、`固件` 放半宽，避免半宽 chip 出现省略号。
+- 2026-05-16 录音列表、录音详情、录音笔记页的本地数据加载期不再展示“正在读取本机录音…”提示；错误态和空态仍保留原有可见反馈。
 - 2026-05-16 首页改为 **笔记 / 录音** 两个 tab，默认停留在笔记；录音 tab 直接嵌入录音列表，原 `/recording` 路由仍保留。笔记页底部工具栏移除红色长录音按钮，只保留短录音入口；短录音实时写入 Markdown 时会先插入录音附件引用，再以 blockquote 标出“短录音转录（实时）/ 短录音转录”，避免把转写误认为手写正文。
 - 2026-05-16 笔记页底部工具栏参考 Obsidian Mobile 重做：左侧为单个横向滚动胶囊工具组，默认顺序为撤销、恢复、标签、图片、文件、短录音、标题、加粗、引用、斜体、删除、标亮、有序列表、无序列表、待办、代码块；保存从滚动工具组中移出，作为关闭键盘左侧的独立发送按钮。标题按钮改为 iOS ActionSheet 选择 H1-H6；关闭键盘会隐藏工具栏，重新点进编辑器后再展示。使用频次排序暂未落地，后续可在该 action 顺序上接入统计。
 - 2026-05-16 Markdown Capture 编辑区新增渲染层：H1-H6、粗体、斜体、引用、删除线、高亮、标签、有序/无序/待办列表、代码块、图片和文件/短录音附件引用会直接以渲染后的形态显示；底层仍保留 TextInput 负责输入、选区和保存 Markdown 原文。工具栏图标从手绘 View/Text 切换为 `lucide-react-native`，并按 Expo SDK 54 安装 `react-native-svg@15.12.1`。
