@@ -29,8 +29,16 @@ describe('recording service', () => {
         partials: [
           {
             elapsed_ms: 1200,
+            end_ms: 12_000,
             speaker: 'S1',
-            text: '我们决定先做本地录音。需要 Ryan 跟进测试。',
+            text: '我们决定先做本地录音。',
+            is_final: true,
+          },
+          {
+            elapsed_ms: 12_000,
+            end_ms: 24_000,
+            speaker: 'S1',
+            text: '需要 Ryan 跟进测试。',
             is_final: true,
           },
         ],
@@ -52,6 +60,12 @@ describe('recording service', () => {
       partial_provider: 'ios-speech',
     });
     expect(detail.transcript.segments.map((segment) => segment.text).join(' ')).toContain('本地录音');
+    expect(detail.transcript.segments).toHaveLength(2);
+    expect(detail.transcript.segments[1]).toMatchObject({
+      start_ms: 12_000,
+      end_ms: 24_000,
+      text: '需要 Ryan 跟进测试。',
+    });
     expect(detail.derivatives.decisions?.items?.[0]?.body).toContain('决定');
     expect(detail.derivatives.todos?.items?.[0]?.body).toContain('需要');
     expect(detail.waveform_samples).toEqual([0.1, 0.4, 0.8, 0.2]);
@@ -105,6 +119,55 @@ describe('recording service', () => {
     expect(manifest.local_timestamps).toMatchObject({
       input_started_at: '2026-05-14T11:00:00.000Z',
     });
+  });
+
+  it('stores recording session attachments in the same local capture', async () => {
+    const db = await createMigratedTestDb();
+    const fs = new MemoryFileSystem();
+    await setValue(db, 'device_id', 'device-1');
+    await fs.writeString('/tmp/audio.m4a', 'audio-bytes');
+    await fs.writeString('/tmp/whiteboard.jpg', 'image-bytes');
+
+    const created = await createRecordingCapture(
+      {
+        title: '带照片的会议',
+        audioUri: '/tmp/audio.m4a',
+        durationMs: 42_000,
+        startedAt: '2026-05-14T11:30:00.000Z',
+        languageHints: [],
+        partialProvider: 'unavailable',
+        transcriptText: '',
+        waveformSamples: [],
+        partials: [],
+        sessionAttachments: [
+          {
+            type: 'image',
+            filename: 'event-photo-1.jpg',
+            localUri: '/tmp/whiteboard.jpg',
+            mime: 'image/jpeg',
+            byte_size: 11,
+            captured_at: '2026-05-14T11:30:09.000Z',
+          },
+        ],
+      },
+      { db, fs, sourceVersion: 'test' },
+    );
+
+    const capture = await capturesRepo.get(db, created.meta.id);
+    const manifest = JSON.parse(await fs.readString(joinPath(capture?.local_path ?? '', 'manifest.json'))) as {
+      attachments: Array<{ filename?: string; type?: string; captured_at?: string }>;
+    };
+    expect(capture).toMatchObject({
+      kind: 'recording',
+      has_image: 1,
+      attachment_count: 10,
+    });
+    expect(manifest.attachments).toContainEqual(expect.objectContaining({
+      type: 'image',
+      filename: 'event-photo-1.jpg',
+      captured_at: '2026-05-14T11:30:09.000Z',
+    }));
+    await expect(fs.readString(joinPath(capture?.local_path ?? '', 'event-photo-1.jpg'))).resolves.toBe('image-bytes');
   });
 
   it('marks recordings with unreadable manifests conflicted without throwing filesystem errors', async () => {

@@ -46,7 +46,13 @@ interface Group {
   items: RecordingMeta[];
 }
 
-export function RecordingsListScreen(): React.ReactElement {
+interface RecordingsListScreenProps {
+  embedded?: boolean;
+}
+
+export function RecordingsListScreen({
+  embedded = false,
+}: RecordingsListScreenProps): React.ReactElement {
   const router = useRouter();
   const [recordings, setRecordings] = useState<RecordingMeta[]>([]);
   const [recoverable, setRecoverable] = useState<RecoveredVoiceRecording[]>([]);
@@ -136,30 +142,16 @@ export function RecordingsListScreen(): React.ReactElement {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Link href="/" style={styles.back}>
-          ← 记一条
-        </Link>
-        <Text style={styles.title}>录音</Text>
-        <View style={styles.headerActions}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push('/recording/x1')}
-            style={({ pressed }) => [styles.x1Entry, pressed && styles.pressed]}
-          >
-            <Text style={styles.x1EntryText}>X1</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push('/recording/new')}
-            style={({ pressed }) => [styles.recordEntry, pressed && styles.pressed]}
-          >
-            <View style={styles.recordDot} />
-            <Text style={styles.recordEntryText}>开始录</Text>
-          </Pressable>
+    <View style={[styles.container, embedded && styles.containerEmbedded]}>
+      {!embedded ? (
+        <View style={styles.header}>
+          <Link href="/" style={styles.back}>
+            ← 记一条
+          </Link>
+          <Text style={styles.title}>录音</Text>
+          <View style={styles.headerSpacer} />
         </View>
-      </View>
+      ) : null}
 
       <ScrollView
         contentContainerStyle={styles.scroll}
@@ -167,6 +159,58 @@ export function RecordingsListScreen(): React.ReactElement {
       >
         {loading ? <Text style={styles.hint}>正在读取本机录音…</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
+        <View style={styles.entryGrid}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/recording/new')}
+            style={({ pressed }) => [styles.entryCard, styles.iphoneCard, pressed && styles.pressed]}
+          >
+            <View style={styles.entryTop}>
+              <View style={styles.entryIcon}>
+                <View style={styles.entryRecordDot} />
+              </View>
+              <Text style={styles.entryBadge}>内置</Text>
+            </View>
+            <Text numberOfLines={2} style={styles.entryTitle}>iPhone 录音</Text>
+            <Text style={styles.entryMeta}>手机麦克风</Text>
+            <Text style={styles.entryDetail}>
+              实时转写、时间点、笔记、拍照和文件都在同一页完成。
+            </Text>
+            <View style={styles.entryPrimary}>
+              <Text style={styles.entryPrimaryText}>开始录音</Text>
+            </View>
+          </Pressable>
+
+          <View style={[styles.entryCard, styles.x1Card]}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/recording/x1-session')}
+              style={({ pressed }) => [styles.entryMain, pressed && styles.pressed]}
+            >
+              <View style={styles.entryTop}>
+                <View style={styles.entryIcon}>
+                  <Text style={styles.entryIconText}>X1</Text>
+                </View>
+                <Text style={styles.entryBadge}>BLE</Text>
+              </View>
+              <Text numberOfLines={2} style={styles.entryTitle}>X1 录音卡</Text>
+              <Text style={styles.entryMeta}>纽曼智能录音笔</Text>
+              <Text style={styles.entryDetail}>
+                连接后显示电量、固件、容量、MAC；录音过程和 iPhone 页面一致。
+              </Text>
+              <View style={styles.entryPrimary}>
+                <Text style={styles.entryPrimaryText}>X1 录音</Text>
+              </View>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/recording/x1')}
+              style={({ pressed }) => [styles.entrySecondary, pressed && styles.pressed]}
+            >
+              <Text style={styles.entrySecondaryText}>通信测试</Text>
+            </Pressable>
+          </View>
+        </View>
         {recoverable.map((item) => {
           const busy = recoveringUri === item.uri;
           return (
@@ -218,7 +262,7 @@ export function RecordingsListScreen(): React.ReactElement {
         {!loading && groups.length === 0 && recoverable.length === 0 ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>还没有录音</Text>
-            <Text style={styles.emptyBody}>点右上角“开始录”，录音会先完整保存在本机。</Text>
+            <Text style={styles.emptyBody}>选择 iPhone 录音或 X1 录音卡，录音会先完整保存在本机。</Text>
           </View>
         ) : null}
         {groups.map((group) => (
@@ -307,6 +351,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: 16,
   },
+  containerEmbedded: {
+    backgroundColor: '#f8fafc',
+    paddingTop: spacing.lg,
+  },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -323,44 +371,8 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '800',
   },
-  headerActions: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  x1Entry: {
-    alignItems: 'center',
-    backgroundColor: colors.accentSoft,
-    borderRadius: radius.pill,
-    justifyContent: 'center',
-    minWidth: 38,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  x1EntryText: {
-    color: colors.accent,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  recordEntry: {
-    alignItems: 'center',
-    backgroundColor: colors.dangerSoft,
-    borderRadius: radius.pill,
-    flexDirection: 'row',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  recordDot: {
-    backgroundColor: colors.recordRed,
-    borderRadius: 5,
-    height: 9,
-    width: 9,
-  },
-  recordEntryText: {
-    color: colors.danger,
-    fontSize: 13,
-    fontWeight: '800',
+  headerSpacer: {
+    width: 56,
   },
   pressed: {
     opacity: 0.78,
@@ -370,6 +382,111 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingBottom: 56,
+  },
+  entryGrid: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: spacing.lg,
+  },
+  entryCard: {
+    backgroundColor: colors.bgSoft,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    flex: 1,
+    minHeight: 224,
+    padding: 12,
+  },
+  iphoneCard: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: '#fecaca',
+  },
+  x1Card: {
+    backgroundColor: colors.accentSoft,
+    borderColor: '#bfdbfe',
+  },
+  entryMain: {
+    flex: 1,
+    gap: 7,
+  },
+  entryTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  entryIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.bg,
+    borderRadius: 18,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  entryRecordDot: {
+    backgroundColor: colors.recordRed,
+    borderRadius: 8,
+    height: 15,
+    width: 15,
+  },
+  entryIconText: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  entryBadge: {
+    backgroundColor: colors.bg,
+    borderRadius: radius.pill,
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  entryTitle: {
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 23,
+    marginTop: 10,
+  },
+  entryMeta: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  entryDetail: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  entryPrimary: {
+    alignItems: 'center',
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    marginTop: 'auto',
+    paddingVertical: 10,
+  },
+  entryPrimaryText: {
+    color: colors.bg,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  entrySecondary: {
+    alignItems: 'center',
+    backgroundColor: colors.bg,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 8,
+    paddingVertical: 9,
+  },
+  entrySecondaryText: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '900',
   },
   recoveryCard: {
     backgroundColor: colors.warningSoft,

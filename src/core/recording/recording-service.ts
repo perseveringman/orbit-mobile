@@ -29,6 +29,7 @@ const DEFAULT_SPEAKER: RecordingSpeaker = {
 
 export interface LivePartialInput {
   elapsed_ms: number;
+  end_ms?: number;
   text: string;
   speaker?: string;
   is_final?: boolean;
@@ -54,6 +55,7 @@ export interface CreateRecordingInput {
   transcriptText: string;
   partialProvider: string;
   waveformSamples?: number[];
+  sessionAttachments?: CaptureAttachment[];
 }
 
 export interface RecordingServiceOptions {
@@ -162,6 +164,7 @@ export async function createRecordingCapture(
           derivative_kind: 'waveform',
         },
         ...derivativeAttachments,
+        ...(input.sessionAttachments ?? []),
       ],
       recording: {
         duration_ms: input.durationMs,
@@ -273,6 +276,16 @@ export async function loadRecordingDetail(
 }
 
 function buildFinalTranscript(input: CreateRecordingInput): FinalTranscript {
+  const partialSegments = buildSegmentsFromPartials(input);
+  if (partialSegments.length > 0) {
+    return {
+      schema: 'orbit.transcript@1',
+      language_detected: input.languageHints.filter((hint) => hint !== 'auto'),
+      speakers: [DEFAULT_SPEAKER],
+      segments: partialSegments,
+    };
+  }
+
   const sourceText = normalizeTranscript(input.transcriptText)
     || normalizeTranscript(input.partials.map((partial) => partial.text).join(' '))
     || `语音录制 ${formatDuration(input.durationMs)}，暂无可用实时转写。`;
@@ -293,6 +306,34 @@ function buildFinalTranscript(input: CreateRecordingInput): FinalTranscript {
     speakers: [DEFAULT_SPEAKER],
     segments,
   };
+}
+
+function buildSegmentsFromPartials(input: CreateRecordingInput): TranscriptSegment[] {
+  const sanitized = input.partials
+    .map((partial) => ({
+      ...partial,
+      elapsed_ms: clampMs(partial.elapsed_ms, input.durationMs),
+      end_ms: partial.end_ms === undefined ? undefined : clampMs(partial.end_ms, input.durationMs),
+      text: normalizeTranscript(partial.text),
+    }))
+    .filter((partial) => partial.text.length > 0);
+
+  return sanitized.map((partial, index) => {
+    const next = sanitized[index + 1];
+    const startMs = partial.elapsed_ms;
+    const inferredEnd = partial.end_ms ?? next?.elapsed_ms ?? input.durationMs;
+    const endMs = Math.max(startMs, Math.min(input.durationMs, inferredEnd));
+    return {
+      id: index,
+      speaker: partial.speaker ?? DEFAULT_SPEAKER.id,
+      start_ms: startMs,
+      end_ms: endMs,
+      text: partial.text,
+      confidence: input.partialProvider === 'ios-speech' || input.partialProvider === 'x1-realtime-ios-speech'
+        ? 0.75
+        : undefined,
+    };
+  });
 }
 
 function buildOutline(transcript: FinalTranscript): OutlineItem[] {
@@ -464,6 +505,7 @@ function serializePartials(partials: LivePartialInput[]): string {
     .map((partial) =>
       JSON.stringify({
         ts: partial.elapsed_ms,
+        endTs: partial.end_ms,
         speaker: partial.speaker ?? DEFAULT_SPEAKER.id,
         text: partial.text,
         isFinal: partial.is_final ?? false,
@@ -511,6 +553,12 @@ function splitSentences(text: string): string[] {
 
 function normalizeTranscript(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+function clampMs(value: number, durationMs: number): number {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.max(0, Math.min(Math.max(0, durationMs), Math.round(number)));
 }
 
 function summarizeText(text: string): string {

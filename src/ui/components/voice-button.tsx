@@ -15,6 +15,7 @@ interface VoiceButtonProps {
   onRecorded: (result: VoiceRecordingResult) => void;
   onTranscript?: (state: LiveTranscriptionState) => void;
   onError: (error: unknown) => void;
+  variant?: 'standalone' | 'toolbar';
 }
 
 export function VoiceButton({
@@ -22,6 +23,7 @@ export function VoiceButton({
   onRecorded,
   onTranscript,
   onError,
+  variant = 'standalone',
 }: VoiceButtonProps): React.ReactElement {
   const [recording, setRecording] = useState(false);
   const [transcription, setTranscription] = useState<LiveTranscriptionSession | null>(null);
@@ -69,7 +71,7 @@ export function VoiceButton({
       accessibilityRole="button"
       disabled={disabled}
       style={({ pressed }) => [
-        styles.button,
+        variant === 'toolbar' ? styles.toolbarButton : styles.button,
         recording && styles.recording,
         disabled && styles.disabled,
         pressed && !disabled && styles.pressed,
@@ -81,7 +83,7 @@ export function VoiceButton({
         void end();
       }}
     >
-      <ComposerIcon name="mic" color={recording ? '#dc2626' : '#0f172a'} size={22} />
+      <ComposerIcon name="mic" color={recording ? '#dc2626' : '#262626'} size={variant === 'toolbar' ? 24 : 22} />
     </Pressable>
   );
 }
@@ -96,6 +98,13 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: 'center',
     width: 44,
+  },
+  toolbarButton: {
+    alignItems: 'center',
+    borderRadius: 18,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
   },
   recording: {
     backgroundColor: '#fff1f2',

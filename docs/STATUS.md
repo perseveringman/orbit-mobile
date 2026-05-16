@@ -3,7 +3,7 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-16（录音坏 manifest 降级修复）
+**Last updated**: 2026-05-16（Widget 三入口快捷按钮）
 **Last updater**: Codex
 **Current milestone**: **M0-M9 — local code complete; DeepSeek AI notes implemented; X1 BLE file import + realtime capture code complete**
 **Next milestone**: 真机/iCloud/TestFlight 验收 + 纽曼 X1 实时录音端到端复测 + direct X1 audio transcription / diarization provider 选择
@@ -14,7 +14,7 @@
 
 **当前项目已经是可运行的 Expo SDK 54 TypeScript + iOS Development Build 项目，并完成 M2-M9 主链路：本地原子 Capture、iCloud Drive 同步、Mac inbound、语音实时转写/原始录音、图片附件、Share Extension、Widget 入口、全局启动自愈/同步，以及长录音 UI 的真实本地落地。**
 
-M7/M8 已接入原生入口：Share Extension 只写 App Group `share-inbox/` 交换目录，主 app 启动后通过 `createCapture()` 导入，继续走同一套五阶段本地原子写入协议；WidgetKit 只 deep link 到主 Capture，并从 App Group `widget/recent.json` 读取最近 capture 快照。Extension/Widget 都不直接写 iCloud。
+M7/M8 已接入原生入口：Share Extension 只写 App Group `share-inbox/` 交换目录，主 app 启动后通过 `createCapture()` 导入，继续走同一套五阶段本地原子写入协议；WidgetKit 只提供 deep link 快捷入口，主屏 small/medium widget 现在有“笔记 / iPhone 录音 / X1 录音”三个按钮，分别打开 `orbit-mobile://`、`orbit-mobile://recording/new`、`orbit-mobile://recording/x1-session`。Extension/Widget 都不直接写 iCloud。
 
 TestFlight 前优先验收：
 
@@ -50,6 +50,8 @@ TestFlight 前优先验收：
 - M5/M6 已把附件纳入同一五阶段原子协议：语音 `.m4a` 和图片都会进入 `captures/<id>/` manifest attachments。
 - M5/M6 媒体保存现在会在写 SQLite 前复写并验证最终 capture 目录的 `manifest.json`、sha256 和附件；不完整时不会显示保存成功，既有坏记录会在启动 reconcile 中标为 `conflicted`。
 - Capture 主输入页现在是统一 composer：底部工具条全部改为图标，短语音是“按住转文字”并以语音附件 chip 留在 composer；图片选择支持多选并进入横向预览，不会立刻保存；文字、图片、语音可以一起保存为同一条 mixed capture。
+- 2026-05-16 主输入页升级为 **Markdown Capture**：Markdown 是承载体，文字、图片、文件、短录音都以 `attachment://` 块插入同一条草稿，保存时附件继续进入同一套五阶段本地原子写入协议。该模式只做移动端 capture-grade composer，不扩展为桌面端完整 Markdown 编辑器。
+- 2026-05-16 真机测试发现中文文件名附件会被安全化成 `.pptx-1` 这类隐藏文件名；已将文件名规范化抽成 `src/core/file/filename.ts`，当可见文件名全是非 ASCII 时保留扩展名并使用 `file-*.ext` / `event-file-*.ext` 回退，避免生成 dotfile。
 - Capture 主输入页的 composer 会跟随键盘上移，并在键盘打开时把 `#` 快捷入口切换为收起键盘图标，避免被键盘遮挡且无法 dismiss。
 - 最近列表和详情页已改为用户友好的 Capture 展示：按文字/图片/语音/混合类型渲染卡片，图片显示缩略图/大图，语音可播放，同步技术记录默认折叠。
 - 当前语音实时转写通过本地 native module `orbit-speech-recognition` 接 Apple Speech framework；转写失败不影响原始 `.m4a` 保存。
@@ -57,13 +59,24 @@ TestFlight 前优先验收：
 - `sync_events.gc({ keepPerCapture })` 已实现窗口函数裁剪；全局同步状态改为 `useSyncStatus()` 聚合并 5s 刷新。
 - 详情页现在对 `failed` / `conflicted` capture 提供手动“重新同步”，会把状态重置为 `pending` 并立即跑一次 SyncWorker；设置页提供 iCloud 状态、sync state 计数、手动同步、手动自愈和“保留原图”开关。
 - M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`；2026-05-14 起主 app 导入是逐条容错、幂等的，失败条目会带 `.failed.json` 移入 `share-inbox-failed/`，URL 分享会尝试通过 `LinkPresentation` 补标题。
-- M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget，deep link 到 `orbit-mobile://`；medium widget 现在会显示 App Group 快照中的最近 capture。
+- M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget；2026-05-16 起主屏 small/medium 改为三入口快捷按钮：笔记 → `orbit-mobile://`，iPhone 录音 → `orbit-mobile://recording/new`，X1 录音 → `orbit-mobile://recording/x1-session`。Widget 只负责打开主 app，不写 SQLite / iCloud。
 - M9 长录音 UI 已从静态 mock 改为真实 Layer 2 数据：`recordings` 表 + `recording_annotations` 表 + `kind='recording'` capture + `audio.m4a` / `waveform.json` / `partial-transcript.ndjson` / `final-transcript.json` / 本地派生物附件。Recording Composer 以原始录音为最高优先级；iOS 录音与 Apple Speech 实时转写共用同一条 native 麦克风管线，实时波形来自同一麦克风 buffer 的 RMS/peak 采样，避免 `expo-av` 与 Speech 并发抢占音频会话；录音中页面已改为实时大纲和真实来源状态，未配置云端模型时使用透明的 `local-live-transcript` / `local-heuristic` 派生，不引入服务端。
 - `orbit-speech-recognition` 已新增 recoverable sidecar：录音开始写 `orbit-recording-*.json`，正常保存/取消会清理；app 被杀后下次进入录音列表会扫描残留 CAF/M4A 并提示保存或丢弃，保存继续走本地原子 capture。
 - 2026-05-15 起录音笔记/Ask 接入 DeepSeek V4 Flash：用户 API Key 通过 `expo-secure-store` 存 iOS Keychain，SQLite 只存非敏感设置；AI task 写入 `ai_tasks`，录音保存后自动排队生成 summary/decisions/risks/todos/custom，Ask Orbit 直连 DeepSeek。AI 只发送转写文本和时间戳，不上传原始音频；失败不影响本地 capture。
 - SyncWorker 对录音 capture 增加 AI gate：如果自动 AI notes 还在 queued/running 或等待重试，首次 iCloud 上传会暂缓；AI 成功、跳过或终态失败后再放行，避免 Mac 端优先 ingest 本地 heuristic 派生物。
 - SyncWorker 现在对 Mac 回执使用 ACK 优先级：先读 `processed/<id>/.acked`，再处理 `failed/<id>/.failed.json`；retryable failure 重传前会清理远端旧 `failed/<id>`，避免 stale failure 覆盖成功 ACK。
 - 录音详情/笔记的用户操作已真实持久化：片段反馈、片段书签、录音中即时标记、todo 勾选状态和自定义派生笔记都会写入 `recording_annotations`，不再依赖 UI 内存状态。
+- 2026-05-16 录音中页面升级为 **Recording Session**：默认视角是“时间点”，主操作为“标记此刻”，随后笔记、拍照、图片、文件都锚到同一个录音时间戳。停止录音时，时间点附件作为 `sessionAttachments` 随 recording capture 原子落盘，时间点元数据写入 `recording_annotations.kind='session_event'`，并同步写 bookmark 以兼容当前详情页标记视图。
+- 2026-05-16 Recording Session 交互收敛：主按钮继续保持“标记此刻”，但“写笔记 / 拍照 / 图片 / 文件”已移入“正在编辑 <timestamp>”当前标记面板内，时间线 active 行显示“正在编辑”，避免用户误以为补充动作会新建标记。
+- 2026-05-16 Recording Session 键盘避让修复：标题、录音控制卡、当前标记编辑器和时间线现在处在同一个页面滚动流里；键盘出现时会增加底部 inset，并把当前标记的笔记输入框滚到可视区，避免 X1 / iPhone 录音时键盘遮挡输入。
+- 2026-05-16 Recording Session 实时转写改为策略分块：Apple Speech 的 live transcript 会按句末标点、约 60 字长度、以及 3.5 秒静默后继续说话分成多个块；保存后的 `final-transcript.json` 优先使用这些实时分块的起止时间，不再把整段转写压成一个块。
+- 2026-05-16 Recording Session 结束保存加二次确认：“完成”和“结束并保存录音”都会先弹出确认；保存成功后进入录音详情并带 `fromSession=1`，详情页返回按钮会回到首页，避免从录音会话替换栈后无法返回。
+- 2026-05-16 X1 录音入口已统一到 Recording Session：新增 `/recording/x1-session`，进入后自动扫描/连接 X1，并在同一套时间点页面里实时接收 X1 MP3、使用 Apple Speech 作为临时字幕来源、保存时把 X1 音频与时间点附件一起原子落盘。原 `/recording/x1` 页面保留并重命名为“X1 通信测试”，用于 BLE 协议/导入/维护命令验证。
+- 2026-05-16 X1 录音会话新增 BLE 接收活动波形：X1 实时 MP3 流尚未在 native 层解码为 PCM 振幅，因此录音中页面先用 BLE 音频包的接收增量生成活动波形，避免 X1 录音时波形区域空白；真实音频仍以原始 MP3 无损保存。
+- 2026-05-16 录音列表入口恢复为 **iPhone 录音 / X1 录音卡** 两个同级卡片：iPhone 进入 `/recording/new`，X1 进入 `/recording/x1-session`，通信测试保留为 X1 卡片的次级入口；X1 Recording Session 的“来源”页会在连接后展示电量、固件版本、容量和 MAC。
+- 2026-05-16 首页改为 **笔记 / 录音** 两个 tab，默认停留在笔记；录音 tab 直接嵌入录音列表，原 `/recording` 路由仍保留。笔记页底部工具栏移除红色长录音按钮，只保留短录音入口；短录音实时写入 Markdown 时会先插入录音附件引用，再以 blockquote 标出“短录音转录（实时）/ 短录音转录”，避免把转写误认为手写正文。
+- 2026-05-16 笔记页底部工具栏参考 Obsidian Mobile 重做：左侧为单个横向滚动胶囊工具组，默认顺序为撤销、恢复、标签、图片、文件、短录音、标题、加粗、引用、斜体、删除、标亮、有序列表、无序列表、待办、代码块；保存从滚动工具组中移出，作为关闭键盘左侧的独立发送按钮。标题按钮改为 iOS ActionSheet 选择 H1-H6；关闭键盘会隐藏工具栏，重新点进编辑器后再展示。图标统一改成自绘线性图标，不新增外部依赖；使用频次排序暂未落地，后续可在该 action 顺序上接入统计。
+- 2026-05-16 Widget SwiftUI 编译兼容修复：`OrbitWidgets` 的 family switch 外层使用 `Group` 再套 widget background modifier；图标字体使用 `Font.system(size:weight:)`，避免 iOS 15.1 Widget target 调用 iOS 16-only `Image.fontWeight`。
 - 2026-05-16 新增 iOS-only native module `orbit-recorder-device`，用静态逆向得到的 AE20/AE21/AE22 BLE 协议实现纽曼智能录音笔 X1 扫描、连接、同步时间、电量/版本/容量读取、录音列表读取和音频导入。导入音频先写入 app 临时文件，再通过 `createRecordingCapture()` 原子落入本机 SQLite + `captures/`，不绕过同步状态机。
 - 2026-05-16 纽曼 X1 真机初测通过：iPhone 15 Pro Max 连接 `录音笔X1-0B19`，读到电量 90%、版本 1.0.7、容量信息和 2 条录音列表；成功导入 `20260516125126.mp3`，BLE 收满 27,648/27,648 bytes，真机 app container 中确认生成 `kind='recording'` capture、`.complete`、`manifest.json`、`audio.mp3`，且音频 sha256 与 manifest 一致。X1 原始录音时间现在写入 attachment `recorded_at`，本次导入时间写入 local input timestamps，避免把“录音发生到导入完成”的间隔误记成输入耗时。
 - 2026-05-16 纽曼 X1 实时录音协议初测通过：X1 页面新增“实时录音协议测试”区和 `autoRealtime=1` deeplink 探针；`startRealtimeRecord` 后设备持续推 `type=1 cmd=1` RX 帧，payload 形如 `01 01 FF F3 48 C4 ...`，其中 `FF F3` 是 MP3 frame sync，说明 BLE notify 可实时传输 MP3 音频帧；`stopRealtimeRecord` 后设备返回 ACK 并在录音列表新增 mp3 文件（如 `20260516141128.mp3` 11s/46,080 bytes、`20260516141325.mp3` 4s/19,456 bytes）。下一步可把实时帧的 payload 去掉前 2 字节后流式写入临时 `.mp3`，停止后继续走 `createRecordingCapture()` 原子落地。
@@ -79,6 +92,15 @@ TestFlight 前优先验收：
 - 2026-05-16 X1 realtime stop status 修复验证：`npm run typecheck`、`npm run lint`、`npm test`、`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 已重新安装真机 build；`orbit-mobile://recording/x1?autoRealtimeCapture=1` 成功连接 `录音笔X1-0B19`，收到实时 MP3 帧并在停止时看到 `payloadHex=010402`，本次按 stopped state 成功保存，日志显示 `action-complete auto-realtime-capture`。
 - 2026-05-16 X1 协议覆盖验证：`npm run typecheck`、`npm run lint`、`npm test`、`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 已重新安装真机 build。新增绑定/解绑、删除、设置等命令仍需在 X1 真机上逐项人工确认，特别是删除/解绑这类会改变设备状态的命令。
 - 2026-05-16 录音坏 manifest 降级验证：`npx vitest run tests/recording/recording-service.test.ts`、`npm run typecheck`、`npm run lint`、`npm test` 已通过。
+- 2026-05-16 双模式 Capture 交互验证：`npm run typecheck`、`npm run lint`、`npm test` 已通过；真机手感、录音中拍照/选文件权限路径仍需人工验证，Recording Session 键盘避让已单独修复并重新安装真机 build。
+- 2026-05-16 Recording Session 键盘避让验证：`npm run typecheck`、`npm run lint`、`npm test` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 已重新安装真机 build；`xcrun devicectl device process launch --device "00008130-001468400EF8001C" --terminate-existing --payload-url "orbit-mobile://recording/x1-session" com.zhouyanbo.orbit.capture` 已启动 X1 Recording Session。键盘打开后的最终手感仍需在真机屏幕上人工确认。
+- 2026-05-16 Recording Session 转写/结束交互验证：`git diff --check`、`npm run typecheck`、`npm run lint`、`npm test` 已通过；新增 `tests/recording/live-transcript-segmenter.test.ts` 覆盖标点分块、长文本分块和静默分块；X1 活动波形与结束确认弹窗仍需真机手感确认。
+- 2026-05-16 录音入口双卡与 X1 信息展示验证：`git diff --check`、`npm run typecheck`、`npm run lint`、`npm test` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 构建/安装/启动通过；`xcrun devicectl device process launch --device "00008130-001468400EF8001C" --terminate-existing --payload-url "orbit-mobile://recording" com.zhouyanbo.orbit.capture` 已在真机打开录音页。
+- 2026-05-16 首页 tab 与短录音标识验证：`git diff --check`、`npm run typecheck`、`npm run lint`、`npm test` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 构建/安装/启动通过；`xcrun devicectl device process launch --device "00008130-001468400EF8001C" --terminate-existing --payload-url "orbit-mobile://" com.zhouyanbo.orbit.capture` 已打开首页。短录音最终手感仍需在真机屏幕上人工确认。
+- 2026-05-16 Obsidian 风格 Markdown 工具栏验证：`git diff --check`、`npm run typecheck`、`npm run lint`、`npm test` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 构建/安装/启动通过；`xcrun devicectl device process launch --device "00008130-001468400EF8001C" --terminate-existing --payload-url "orbit-mobile://" com.zhouyanbo.orbit.capture` 已打开首页。真机视觉和各 Markdown action 的最终手感仍需人工确认。
+- 2026-05-16 Markdown 工具栏标题级别与键盘显隐验证：`git diff --check`、`npm run typecheck`、`npm run lint`、`npm test` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 构建/安装/启动通过；`xcrun devicectl device process launch --device "00008130-001468400EF8001C" --terminate-existing --payload-url "orbit-mobile://" com.zhouyanbo.orbit.capture` 已打开首页。标题 H1-H6 ActionSheet、关闭键盘隐藏工具栏、重新聚焦展示工具栏、独立发送按钮的最终手感仍需人工确认。
+- 2026-05-16 Widget 三入口快捷按钮验证：`git diff --check`、`npm run typecheck`、`npm run lint`、`npm test`、`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 已通过；主屏 widget 的三个按钮分别 deep link 到笔记、iPhone 录音和 X1 录音。真机仍需把 widget 加到主屏后逐个点按确认。
+- 2026-05-16 双模式真机初测：`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 构建/安装/启动通过；真机保存了纯文字 Markdown capture 和包含 3 张图片、原图、中文 `.pptx` 文件、短录音的 mixed capture，沙盒确认 `.complete`、`manifest.json`、附件文件都存在；重装期间触发一次录音中 app 终止，恢复入口保存出 1 分 11 秒 `恢复的录音` recording capture。中文文件名修复后的二次真机文件选择尚待再次手动保存验证。
 - 本机 `周延博的 iPhone` 此前已完成 `iphoneos` Debug build、签名、安装和启动；本次 DeepSeek 变更新增 `expo-secure-store` native 依赖，需要重新真机安装后执行 Key 设置、录音 AI 生成、Ask、飞行模式/杀进程/iCloud Finder/Share/Widget 交互验收。
 - 2026-05-15 Mac inbound 自动化验证：`/Users/ryanbzhou/Developer/new-orbit` 的 `npm run typecheck`、`npm test`、`npm run lint` 已通过（lint 仍保留历史 warning）；focused `tests/mobile_inbound.test.ts` 通过。
 
@@ -176,6 +198,7 @@ TestFlight 前优先验收：
 - [ADR-003](./decisions/ADR-003-native-icloud-drive-bridge.md) — 2026-05-07 · **accepted** · M3 使用本地 Expo native module 接入 iCloud Drive，不引入服务端
 - [ADR-004](./decisions/ADR-004-user-key-deepseek-ai-notes.md) — 2026-05-15 · **accepted** · 用户自持 Key 直连 DeepSeek V4 Flash 生成录音 AI 笔记
 - [ADR-005](./decisions/ADR-005-mobile-captures-materialize-as-notes.md) — 2026-05-15 · **accepted** · mobile capture 直接 materialize 为 Notes + Timeline，AI 派生默认进 Workbench
+- [ADR-006](./decisions/ADR-006-two-mode-capture-interaction.md) — 2026-05-16 · **accepted** · 移动端拆成 Markdown Capture 与 Recording Session 两种 capture 模式
 
 ## 已有 Plans
 
@@ -199,6 +222,7 @@ TestFlight 前优先验收：
 | iCloud Container 权限审核 | App Store 审核可能要求说明 | 隐私说明文档 + 明示数据流向 |
 | 图片“仅 Wi-Fi 原图”需要系统配合 | 本地会保留原图并写入 `sync_hint=wifi_only`，但 iCloud Drive 是否走蜂窝仍受 iOS 系统设置控制 | 如需 app 级强约束，后续先确认是否引入网络状态 native/dependency |
 | final transcription / diarization provider 未选择 | DeepSeek V4 Flash 已用于文本派生笔记，但不处理 `.m4a` final transcription 或 diarization | 先保留原始录音与 Apple Speech 转写；后续再选音频转写/说话人分离 provider |
+| 双模式交互需要真机手感校准 | Markdown Capture 与 Recording Session 已实现初版，但键盘、拍照权限、文件选择、录音中切换 tab 的真实手感必须在 iPhone 上跑完 | 下一轮真机从冷启动、短录音、长录音打点、录音中拍照/选文件、保存后详情回看逐项复测 |
 | 纽曼 X1 BLE 实时流端到端复测未完成 | 代码已把实时 MP3 帧边收边写入临时 `.mp3` 并在停止后原子保存 Capture，但本轮真机扫描未看到真实 X1 广播，未完成 5 秒自动保存复测 | 打开 `orbit-mobile://recording/x1?autoRealtimeCapture=1`，确认连接 `录音笔X1-*` 后自动录 5 秒并生成 recording capture；补测断连/取消/后台场景 |
 | X1 实时字幕目前不是直连 BLE 音频 | 当前实时字幕复用 Apple Speech 监听 iPhone 麦克风；保存的原始音频来自 X1 BLE MP3 流，二者可能因距离/环境不同而不完全一致 | 若必须“看到的字就是 X1 音频”，下一步在 native 层解码 BLE MP3 为 PCM，再接 Apple Speech/SFSpeechAudioBufferRecognitionRequest 或后续本地/用户自持 provider |
 

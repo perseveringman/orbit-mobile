@@ -11,6 +11,7 @@ export interface LiveTranscriptionState {
   transcript: string;
   available: boolean;
   source: 'ios-speech' | 'unavailable';
+  isFinal?: boolean;
   reason?: string;
 }
 
@@ -76,6 +77,7 @@ function subscribeToNativeTranscription(
       transcript: event.transcript,
       available: true,
       source: event.source,
+      isFinal: event.isFinal,
     });
   });
   const errorSubscription = addTranscriptionErrorListener((event) => {

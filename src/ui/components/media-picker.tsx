@@ -13,9 +13,15 @@ interface MediaPickerProps {
   disabled?: boolean;
   onPicked: (images: PickedImage[]) => void;
   onError: (error: unknown) => void;
+  variant?: 'standalone' | 'toolbar';
 }
 
-export function MediaPicker({ disabled, onPicked, onError }: MediaPickerProps): React.ReactElement {
+export function MediaPicker({
+  disabled,
+  onPicked,
+  onError,
+  variant = 'standalone',
+}: MediaPickerProps): React.ReactElement {
   async function run(action: 'library' | 'camera'): Promise<void> {
     if (disabled) return;
     try {
@@ -55,13 +61,13 @@ export function MediaPicker({ disabled, onPicked, onError }: MediaPickerProps): 
       accessibilityRole="button"
       disabled={disabled}
       style={({ pressed }) => [
-        styles.button,
+        variant === 'toolbar' ? styles.toolbarButton : styles.button,
         disabled && styles.disabled,
         pressed && !disabled && styles.pressed,
       ]}
       onPress={open}
     >
-      <ComposerIcon name="image" color="#0f172a" size={23} />
+      <ComposerIcon name="image" color="#262626" size={variant === 'toolbar' ? 24 : 23} />
     </Pressable>
   );
 }
@@ -76,6 +82,13 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: 'center',
     width: 44,
+  },
+  toolbarButton: {
+    alignItems: 'center',
+    borderRadius: 18,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
   },
   disabled: {
     opacity: 0.35,

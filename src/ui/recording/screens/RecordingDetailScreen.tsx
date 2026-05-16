@@ -43,6 +43,7 @@ type DetailTab = 'source' | 'transcript' | 'mark';
 
 interface Props {
   id: string;
+  returnHomeOnBack?: boolean;
 }
 
 interface RecordingBookmark {
@@ -53,7 +54,7 @@ interface RecordingBookmark {
   label: string;
 }
 
-export function RecordingDetailScreen({ id }: Props): React.ReactElement {
+export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): React.ReactElement {
   const router = useRouter();
   const [detail, setDetail] = useState<RecordingDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -264,7 +265,16 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
 
   return (
     <View style={styles.container}>
-      <Header detail={detail} onBack={() => router.back()} />
+      <Header
+        detail={detail}
+        onBack={() => {
+          if (returnHomeOnBack) {
+            router.replace('/');
+            return;
+          }
+          router.back();
+        }}
+      />
       <View style={styles.titleArea}>
         <Text style={styles.title}>{detail.meta.title}</Text>
         {loadError ? <Text style={styles.error}>{loadError}</Text> : null}

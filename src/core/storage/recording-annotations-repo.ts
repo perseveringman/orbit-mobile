@@ -5,6 +5,7 @@ import { isoNow } from '../../utils/time';
 export type RecordingAnnotationKind =
   | 'segment_feedback'
   | 'bookmark'
+  | 'session_event'
   | 'todo_state'
   | 'custom_derivative';
 

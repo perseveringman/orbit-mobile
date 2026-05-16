@@ -501,7 +501,7 @@ export function X1RecorderImportScreen(): React.ReactElement {
         <Link href="/recording" style={styles.back}>
           ← 录音
         </Link>
-        <Text style={styles.title}>X1 导入</Text>
+        <Text style={styles.title}>X1 通信测试</Text>
         <Text style={styles.state}>{connection.bluetoothState}</Text>
       </View>
 
