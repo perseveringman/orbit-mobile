@@ -51,6 +51,7 @@ import {
 import { openDb } from '../../../core/storage/db';
 import { runSyncTick } from '../../../core/sync/worker';
 import { writeWidgetSnapshot } from '../../../core/widget/snapshot';
+import { returnTo } from '../../navigation/back';
 import { Waveform } from '../components/Waveform';
 import { StatusBadge } from '../components/StatusBadge';
 import {
@@ -368,9 +369,12 @@ export function RecordingsListScreen({
     <View style={[styles.container, embedded && styles.containerEmbedded]}>
       {!embedded ? (
         <View style={styles.header}>
-          <Link href="/" style={styles.back}>
-            ← 记一条
-          </Link>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => returnTo(router, '/')}
+          >
+            <Text style={styles.back}>← 记一条</Text>
+          </Pressable>
           <Text style={styles.title}>录音</Text>
           <View style={styles.headerSpacer} />
         </View>

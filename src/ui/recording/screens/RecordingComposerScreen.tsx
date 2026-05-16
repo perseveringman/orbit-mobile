@@ -87,6 +87,7 @@ import { runSyncTick } from '../../../core/sync/worker';
 import { writeWidgetSnapshot } from '../../../core/widget/snapshot';
 import type { RecordingSpeaker } from '../../../types/recording';
 import { expoFileSystem } from '../../../utils/fs';
+import { backOrReplace } from '../../navigation/back';
 import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SpeakerAvatar } from '../components/SpeakerAvatar';
 import { Waveform } from '../components/Waveform';
@@ -676,7 +677,7 @@ export function RecordingComposerScreen({
     } else {
       await cancelVoiceRecording().catch(() => undefined);
     }
-    router.back();
+    backOrReplace(router, '/');
   }
 
   function markNow(): void {

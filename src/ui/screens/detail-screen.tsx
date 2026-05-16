@@ -9,7 +9,7 @@
  */
 
 import { Audio } from 'expo-av';
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { AVPlaybackStatusSuccess } from 'expo-av';
@@ -25,8 +25,10 @@ import {
   type CaptureDisplayAttachment,
   type CaptureDisplayModel,
 } from '../models/capture-display';
+import { returnTo } from '../navigation/back';
 
 export function DetailScreen({ id }: { id: string }): React.ReactElement {
+  const router = useRouter();
   const [capture, setCapture] = useState<CaptureRow | null>(null);
   const [display, setDisplay] = useState<CaptureDisplayModel | null>(null);
   const [events, setEvents] = useState<SyncEventRow[]>([]);
@@ -94,9 +96,13 @@ export function DetailScreen({ id }: { id: string }): React.ReactElement {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Link href="/recent" style={styles.back}>
-        返回最近
-      </Link>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => returnTo(router, '/recent')}
+        style={styles.backButton}
+      >
+        <Text style={styles.back}>返回最近</Text>
+      </Pressable>
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {capture ? (
         <>
@@ -243,6 +249,9 @@ const styles = StyleSheet.create({
   back: {
     color: '#2563eb',
     fontWeight: '600',
+  },
+  backButton: {
+    alignSelf: 'flex-start',
     marginBottom: 24,
   },
   header: {

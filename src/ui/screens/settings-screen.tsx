@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -29,6 +29,7 @@ import { openDb } from '../../core/storage/db';
 import { runSyncTick } from '../../core/sync/worker';
 import * as iCloudBridge from '../../native/icloud-bridge';
 import type { SyncStatusCounts } from '../../types/sync';
+import { returnTo } from '../navigation/back';
 
 const IMAGE_POLICIES: Array<{
   value: ImageOriginalPolicy;
@@ -53,6 +54,7 @@ const IMAGE_POLICIES: Array<{
 ];
 
 export function SettingsScreen(): React.ReactElement {
+  const router = useRouter();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [counts, setCounts] = useState<SyncStatusCounts | null>(null);
   const [iCloud, setICloud] = useState<iCloudBridge.ICloudContainerStatus | null>(null);
@@ -211,9 +213,13 @@ export function SettingsScreen(): React.ReactElement {
 
   return (
     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.container}>
-      <Link href="/" style={styles.back}>
-        返回
-      </Link>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => returnTo(router, '/')}
+        style={styles.backButton}
+      >
+        <Text style={styles.back}>返回</Text>
+      </Pressable>
       <Text style={styles.title}>设置</Text>
       {message ? <Text style={styles.message}>{message}</Text> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -384,6 +390,9 @@ const styles = StyleSheet.create({
   back: {
     color: '#2563eb',
     fontWeight: '700',
+  },
+  backButton: {
+    alignSelf: 'flex-start',
     marginBottom: 18,
   },
   title: {

@@ -1,6 +1,6 @@
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
-import { Link, useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   addConnectionStateListener,
   addDeviceStatusListener,
@@ -61,6 +61,7 @@ import type { LivePartialInput } from '../../../core/recording/recording-service
 import { openDb } from '../../../core/storage/db';
 import { runSyncTick } from '../../../core/sync/worker';
 import { writeWidgetSnapshot } from '../../../core/widget/snapshot';
+import { returnTo } from '../../navigation/back';
 import { formatDurationLabel, formatTimestamp } from '../format';
 import { colors, radius, spacing } from '../theme';
 
@@ -498,9 +499,12 @@ export function X1RecorderImportScreen(): React.ReactElement {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Link href="/recording" style={styles.back}>
-          ← 录音
-        </Link>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => returnTo(router, '/recording')}
+        >
+          <Text style={styles.back}>← 录音</Text>
+        </Pressable>
         <Text style={styles.title}>X1 通信测试</Text>
         <Text style={styles.state}>{connection.bluetoothState}</Text>
       </View>

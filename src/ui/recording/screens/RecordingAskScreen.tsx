@@ -28,6 +28,7 @@ import { loadRecordingDetail } from '../../../core/recording/recording-service';
 import { loadAppSettings } from '../../../core/settings/app-settings';
 import { openDb } from '../../../core/storage/db';
 import type { RecordingDetail } from '../../../types/recording';
+import { backOrReplace } from '../../navigation/back';
 import { MISSING_RECORDING_MESSAGE, recordingErrorMessage } from '../errors';
 import { colors, radius, spacing } from '../theme';
 
@@ -139,7 +140,8 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
         </Pressable>
         <Text style={styles.headerTitle}>Ask Orbit</Text>
         <Pressable
-          onPress={() => router.back()}
+          accessibilityRole="button"
+          onPress={() => backOrReplace(router, `/recording/${id}`)}
           style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
         >
           <Text style={styles.iconBtnText}>✕</Text>

@@ -11,7 +11,7 @@
  * @see docs/plans/2026-05-13-long-recording-and-transcript.md §4.3
  */
 
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { Audio, type AVPlaybackStatus } from 'expo-av';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -38,6 +38,7 @@ import { Waveform } from '../components/Waveform';
 import { MISSING_RECORDING_MESSAGE, recordingErrorMessage } from '../errors';
 import { formatTimestamp } from '../format';
 import { colors, radius, spacing } from '../theme';
+import { backOrReplace, returnTo } from '../../navigation/back';
 
 type DetailTab = 'source' | 'transcript' | 'mark';
 
@@ -252,9 +253,12 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
     return (
       <View style={[styles.container, styles.center]}>
         <Text style={styles.notFound}>{loadError ?? MISSING_RECORDING_MESSAGE}</Text>
-        <Link href="/recording" style={styles.notFoundLink}>
-          ← 返回录音列表
-        </Link>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => returnTo(router, '/recording')}
+        >
+          <Text style={styles.notFoundLink}>← 返回录音列表</Text>
+        </Pressable>
       </View>
     );
   }
@@ -265,10 +269,10 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
         detail={detail}
         onBack={() => {
           if (returnHomeOnBack) {
-            router.replace('/');
+            returnTo(router, '/');
             return;
           }
-          router.back();
+          backOrReplace(router, '/recording');
         }}
       />
       <View style={styles.titleArea}>

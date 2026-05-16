@@ -9,7 +9,7 @@
  * @see docs/plans/2026-05-13-long-recording-and-transcript.md §4.4 §4.5
  */
 
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
@@ -40,6 +40,7 @@ import { MISSING_RECORDING_MESSAGE, recordingErrorMessage } from '../errors';
 import { formatLongDateTime, formatTimestamp } from '../format';
 import { TemplateSheet } from './TemplateSheet';
 import { colors, radius, spacing } from '../theme';
+import { backOrReplace } from '../../navigation/back';
 
 interface Props {
   id: string;
@@ -202,7 +203,8 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
     <View style={styles.container}>
       <View style={styles.header}>
         <Pressable
-          onPress={() => router.back()}
+          accessibilityRole="button"
+          onPress={() => backOrReplace(router, `/recording/${id}`)}
           style={({ pressed }) => [styles.iconBtn, pressed && styles.pressed]}
         >
           <Text style={styles.iconBtnText}>‹</Text>
@@ -296,12 +298,12 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
              笔记由 {detail.derivatives.summary?.provider ?? 'local'} 生成 ·
             可在录音详情页对照原音校对
           </Text>
-          <Link
-            href={`/recording/${id}`}
-            style={styles.footerNoteLink}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => backOrReplace(router, `/recording/${id}`)}
           >
-            ← 返回录音详情
-          </Link>
+            <Text style={styles.footerNoteLink}>← 返回录音详情</Text>
+          </Pressable>
         </View>
       </ScrollView>
 

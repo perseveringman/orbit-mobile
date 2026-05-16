@@ -8,15 +8,17 @@
  *
  */
 
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { SyncIndicator } from '../components/sync-indicator';
 import { useCapturesRecent } from '../hooks/use-captures';
 import { loadCaptureDisplay, type CaptureDisplayModel } from '../models/capture-display';
+import { returnTo } from '../navigation/back';
 
 export function RecentScreen(): React.ReactElement {
+  const router = useRouter();
   const capturesResult = useCapturesRecent();
   const [displayById, setDisplayById] = useState<Record<string, CaptureDisplayModel>>({});
 
@@ -42,9 +44,12 @@ export function RecentScreen(): React.ReactElement {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Link href="/" style={styles.back}>
-          记一条
-        </Link>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => returnTo(router, '/')}
+        >
+          <Text style={styles.back}>记一条</Text>
+        </Pressable>
         <Text style={styles.title}>最近</Text>
         <View style={styles.headerActions}>
           <Link href="/recording" style={styles.recordingLink}>
