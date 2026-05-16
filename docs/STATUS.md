@@ -3,7 +3,7 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-16（返回按钮不再 push 新页）
+**Last updated**: 2026-05-16（最近列表 Markdown 阅读态）
 **Last updater**: Codex
 **Current milestone**: **M0-M9 — local code complete; DeepSeek AI notes implemented; X1 BLE file import + realtime capture code complete**
 **Next milestone**: 真机/iCloud/TestFlight 验收 + 纽曼 X1 实时录音端到端复测 + direct X1 audio transcription / diarization provider 选择
@@ -54,6 +54,7 @@ TestFlight 前优先验收：
 - 2026-05-16 真机测试发现中文文件名附件会被安全化成 `.pptx-1` 这类隐藏文件名；已将文件名规范化抽成 `src/core/file/filename.ts`，当可见文件名全是非 ASCII 时保留扩展名并使用 `file-*.ext` / `event-file-*.ext` 回退，避免生成 dotfile。
 - Capture 主输入页的 composer 会跟随键盘上移，并在键盘打开时把 `#` 快捷入口切换为收起键盘图标，避免被键盘遮挡且无法 dismiss。
 - 最近列表和详情页已改为用户友好的 Capture 展示：按文字/图片/语音/混合类型渲染卡片，图片显示缩略图/大图，语音可播放，同步技术记录默认折叠。
+- 2026-05-16 最近列表项改为共享 Markdown 阅读渲染：H1-H6、粗体/斜体/引用/高亮/删除线、标签、代码块、有序/无序/待办列表、`attachment://` 图片/文件/短录音块都会按笔记时间轴卡片渲染；超长内容按块数和字符数截断并显示“阅读全文”，点击卡片进入详情页查看完整 Markdown。
 - 当前语音实时转写通过本地 native module `orbit-speech-recognition` 接 Apple Speech framework；转写失败不影响原始 `.m4a` 保存。
 - M6 图片入口使用 ActionSheet，相册/拍照统一为 `MediaPicker`；2026-05-14 起图片经本地 native module `orbit-image-tools` 使用 iOS `UIImage` 压缩/缩放；2026-05-15 起设置页提供“总是压缩 / 仅 Wi-Fi 原图 / 总是原图”策略，默认无损保留原图，不上传到外部服务；2026-05-16 起主输入页选图只加入 composer 预览，用户可继续补文字后一次保存。
 - `sync_events.gc({ keepPerCapture })` 已实现窗口函数裁剪；全局同步状态改为 `useSyncStatus()` 聚合并 5s 刷新。
@@ -121,6 +122,7 @@ TestFlight 前优先验收：
 - 2026-05-16 录音入口 chip 防省略验证：`git diff --check`、`npx tsc --noEmit`、`npm run lint` 已通过；本次仅调整入口 chip 排序与整行宽度。
 - 2026-05-16 录音标题语义化验证：`git diff --check`、`npx tsc --noEmit`、`npx vitest run tests/ai/worker.test.ts tests/recording/title.test.ts`、`npm run lint`、`npm test` 已通过；`tests/recording/title.test.ts` 覆盖 `iphone-YYYYMMDDHHmmss` / `录音卡-YYYYMMDDHHmmss` 标题和语义标题过滤，`tests/ai/worker.test.ts` 覆盖 DeepSeek `semantic_title` 写回 recordings 表和 manifest。`xcrun devicectl device process launch --device "00008130-001468400EF8001C" --terminate-existing --payload-url "orbit-mobile://recording/new" com.zhouyanbo.orbit.capture` 已打开 iPhone 录音页，Metro 仅出现既有 require cycle 与 `expo-av` deprecation warning。
 - 2026-05-16 录音来源前缀标题验证：`git diff --check`、`npx tsc --noEmit`、`npx vitest run tests/recording/title.test.ts tests/ai/worker.test.ts`、`npm run lint`、`npm test` 已通过；iPhone Recording Session 默认标题使用 `iphone-YYYYMMDDHHmmss`，X1 Recording Session 与 X1 导入默认标题使用 `录音卡-YYYYMMDDHHmmss`，AI 语义标题过滤会拒绝这两种占位标题。`xcrun devicectl device process launch --device "00008130-001468400EF8001C" --terminate-existing --payload-url "orbit-mobile://recording/new" com.zhouyanbo.orbit.capture` 已打开 iPhone 录音页，Metro 仅出现既有 require cycle 与 `expo-av` deprecation warning。
+- 2026-05-16 最近列表 Markdown 阅读态验证：`git diff --check`、`npx tsc --noEmit`、`npm run typecheck`、`npx vitest run tests/markdown/render-model.test.ts`、`npm run lint`、`npm test` 已通过。真机视觉仍需人工确认最近列表卡片高度、附件缩略图和“阅读全文”手感。
 - 2026-05-16 双模式真机初测：`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 构建/安装/启动通过；真机保存了纯文字 Markdown capture 和包含 3 张图片、原图、中文 `.pptx` 文件、短录音的 mixed capture，沙盒确认 `.complete`、`manifest.json`、附件文件都存在；重装期间触发一次录音中 app 终止，恢复入口保存出 1 分 11 秒 `恢复的录音` recording capture。中文文件名修复后的二次真机文件选择尚待再次手动保存验证。
 - 本机 `周延博的 iPhone` 此前已完成 `iphoneos` Debug build、签名、安装和启动；本次 DeepSeek 变更新增 `expo-secure-store` native 依赖，需要重新真机安装后执行 Key 设置、录音 AI 生成、Ask、飞行模式/杀进程/iCloud Finder/Share/Widget 交互验收。
 - 2026-05-15 Mac inbound 自动化验证：`/Users/ryanbzhou/Developer/new-orbit` 的 `npm run typecheck`、`npm test`、`npm run lint` 已通过（lint 仍保留历史 warning）；focused `tests/mobile_inbound.test.ts` 通过。

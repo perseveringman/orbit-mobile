@@ -12,6 +12,8 @@ import { Link, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { extractMarkdownAttachmentFilenames } from '../../core/markdown/render-model';
+import { MarkdownPreview } from '../components/markdown-preview';
 import { SyncIndicator } from '../components/sync-indicator';
 import { useCapturesRecent } from '../hooks/use-captures';
 import { loadCaptureDisplay, type CaptureDisplayModel } from '../models/capture-display';
@@ -68,6 +70,10 @@ export function RecentScreen(): React.ReactElement {
         renderItem={({ item }) => {
           const href = `/detail/${item.id}` as const;
           const display = displayById[item.id];
+          const body = display?.body || item.content_preview || '空白 Capture';
+          const referenced = extractMarkdownAttachmentFilenames(body);
+          const standaloneImages = display?.images.filter((image) => !referenced.has(image.filename)) ?? [];
+          const standaloneAudio = display?.audio.filter((audio) => !referenced.has(audio.filename)) ?? [];
           return (
             <Link href={href} asChild>
               <Pressable style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
@@ -78,25 +84,30 @@ export function RecentScreen(): React.ReactElement {
                   </View>
                   <SyncIndicator state={item.sync_state} />
                 </View>
-                <Text numberOfLines={2} style={styles.preview}>
-                  {display?.title || item.content_preview || '空白 Capture'}
-                </Text>
-                {display?.images[0] ? (
+                <MarkdownPreview
+                  compact
+                  content={body}
+                  attachments={display?.attachments ?? []}
+                  maxBlocks={10}
+                  maxCharacters={760}
+                  showTruncationHint
+                />
+                {standaloneImages[0] ? (
                   <View style={styles.imageStrip}>
-                    {display.images.slice(0, 3).map((image) => (
+                    {standaloneImages.slice(0, 3).map((image) => (
                       <Image key={image.filename} source={{ uri: image.uri }} style={styles.thumbnail} />
                     ))}
-                    {display.images.length > 3 ? (
+                    {standaloneImages.length > 3 ? (
                       <View style={styles.moreImages}>
-                        <Text style={styles.moreImagesText}>+{display.images.length - 3}</Text>
+                        <Text style={styles.moreImagesText}>+{standaloneImages.length - 3}</Text>
                       </View>
                     ) : null}
                   </View>
                 ) : null}
-                {display?.audio[0] ? (
+                {standaloneAudio[0] ? (
                   <View style={styles.audioPill}>
                     <Text style={styles.audioPillText}>
-                      语音 {display.audio[0].durationLabel ?? display.audio[0].sizeLabel}
+                      语音 {standaloneAudio[0].durationLabel ?? standaloneAudio[0].sizeLabel}
                     </Text>
                   </View>
                 ) : null}

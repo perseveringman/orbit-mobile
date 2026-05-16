@@ -14,11 +14,13 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { AVPlaybackStatusSuccess } from 'expo-av';
 
+import { extractMarkdownAttachmentFilenames } from '../../core/markdown/render-model';
 import * as capturesRepo from '../../core/storage/captures-repo';
 import * as eventsRepo from '../../core/storage/events-repo';
 import { openDb } from '../../core/storage/db';
 import { runSyncTick } from '../../core/sync/worker';
 import type { CaptureRow, SyncEventRow } from '../../types/capture';
+import { MarkdownPreview } from '../components/markdown-preview';
 import { SyncIndicator } from '../components/sync-indicator';
 import {
   loadCaptureDisplay,
@@ -86,6 +88,13 @@ export function DetailScreen({ id }: { id: string }): React.ReactElement {
     }
   }
 
+  const body = display?.body ?? '';
+  const referencedAttachments = extractMarkdownAttachmentFilenames(body);
+  const standaloneImages = display?.images.filter((image) => !referencedAttachments.has(image.filename)) ?? [];
+  const standaloneAudio = display?.audio.filter((audio) => !referencedAttachments.has(audio.filename)) ?? [];
+  const standaloneFiles = display?.attachments
+    .filter((attachment) => attachment.type === 'file' && !referencedAttachments.has(attachment.filename)) ?? [];
+
   if (loading) {
     return (
       <View style={styles.center}>
@@ -113,30 +122,32 @@ export function DetailScreen({ id }: { id: string }): React.ReactElement {
             </View>
             <SyncIndicator state={capture.sync_state} />
           </View>
-          {display?.body ? <Text style={styles.content}>{display.body}</Text> : null}
-          {display?.images.length ? (
+          {display?.body ? (
+            <View style={styles.markdownBody}>
+              <MarkdownPreview content={display.body} attachments={display.attachments} selectable />
+            </View>
+          ) : null}
+          {standaloneImages.length ? (
             <View style={styles.imageGrid}>
-              {display.images.map((image) => (
+              {standaloneImages.map((image) => (
                 <Image key={image.filename} source={{ uri: image.uri }} style={styles.image} />
               ))}
             </View>
           ) : null}
-          {display?.audio.length ? (
+          {standaloneAudio.length ? (
             <View style={styles.audioList}>
-              {display.audio.map((audio) => (
+              {standaloneAudio.map((audio) => (
                 <AudioAttachmentCard key={audio.filename} attachment={audio} />
               ))}
             </View>
           ) : null}
-          {display?.attachments.filter((attachment) => attachment.type === 'file').length ? (
+          {standaloneFiles.length ? (
             <View style={styles.fileList}>
-              {display.attachments
-                .filter((attachment) => attachment.type === 'file')
-                .map((attachment) => (
-                  <Text key={attachment.filename} style={styles.fileItem}>
-                    附件：{attachment.filename} · {attachment.sizeLabel}
-                  </Text>
-                ))}
+              {standaloneFiles.map((attachment) => (
+                <Text key={attachment.filename} style={styles.fileItem}>
+                  附件：{attachment.filename} · {attachment.sizeLabel}
+                </Text>
+              ))}
             </View>
           ) : null}
           <Text style={styles.meta}>{display?.capturedAtLabel ?? capture.captured_at_local}</Text>
@@ -274,6 +285,9 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     fontSize: 20,
     lineHeight: 30,
+  },
+  markdownBody: {
+    marginTop: 2,
   },
   imageGrid: {
     gap: 12,

@@ -53,6 +53,7 @@ import { openDb } from '../../core/storage/db';
 import { runSyncTick } from '../../core/sync/worker';
 import { writeWidgetSnapshot } from '../../core/widget/snapshot';
 import { ComposerIcon, type ComposerIconName } from '../components/composer-icons';
+import { MarkdownPreview } from '../components/markdown-preview';
 import { MediaPicker } from '../components/media-picker';
 import { VoiceButton } from '../components/voice-button';
 import { useDraft } from '../hooks/use-draft';
@@ -770,6 +771,11 @@ function RenderedMarkdownEditor({
   onPress: () => void;
 }): React.ReactElement {
   const trimmed = content.trim();
+  const imageAttachments = images.map((image) => ({
+    filename: image.filename,
+    type: 'image',
+    uri: image.uri,
+  }));
   return (
     <ScrollView
       keyboardShouldPersistTaps="handled"
@@ -785,256 +791,10 @@ function RenderedMarkdownEditor({
           </Text>
         </View>
       ) : (
-        renderMarkdownBlocks(content, images)
+        <MarkdownPreview content={content} attachments={imageAttachments} />
       )}
     </ScrollView>
   );
-}
-
-function renderMarkdownBlocks(
-  content: string,
-  images: PendingMarkdownImage[],
-): React.ReactNode[] {
-  const lines = content.split(/\r?\n/);
-  const blocks: React.ReactNode[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index] ?? '';
-    const trimmed = line.trim();
-    const key = `md-${index}`;
-
-    if (trimmed.length === 0) {
-      blocks.push(<View key={key} style={styles.renderedSpacer} />);
-      index += 1;
-      continue;
-    }
-
-    if (trimmed.startsWith('```')) {
-      const codeLines: string[] = [];
-      index += 1;
-      while (index < lines.length && !(lines[index] ?? '').trim().startsWith('```')) {
-        codeLines.push(lines[index] ?? '');
-        index += 1;
-      }
-      if (index < lines.length) index += 1;
-      blocks.push(
-        <View key={key} style={styles.renderedCodeBlock}>
-          <Text style={styles.renderedCodeText}>{codeLines.join('\n') || '代码'}</Text>
-        </View>,
-      );
-      continue;
-    }
-
-    const imageAttachment = /^!\[([^\]]*)\]\(attachment:\/\/([^)]+)\)$/.exec(trimmed);
-    if (imageAttachment) {
-      blocks.push(
-        <RenderedImageAttachment
-          key={key}
-          filename={imageAttachment[2] ?? ''}
-          image={images.find((item) => item.filename === imageAttachment[2])}
-          label={imageAttachment[1] || imageAttachment[2] || '图片'}
-        />,
-      );
-      index += 1;
-      continue;
-    }
-
-    const fileAttachment = /^\[([^\]]+)\]\(attachment:\/\/([^)]+)\)$/.exec(trimmed);
-    if (fileAttachment) {
-      const label = fileAttachment[1] ?? '附件';
-      const filename = fileAttachment[2] ?? '';
-      blocks.push(
-        <RenderedAttachment key={key} filename={filename} label={label} />,
-      );
-      index += 1;
-      continue;
-    }
-
-    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
-    if (heading) {
-      const level = Math.min(6, heading[1]?.length ?? 1);
-      blocks.push(
-        <Text key={key} style={headingStyle(level)}>
-          {renderInlineMarkdown(heading[2] ?? '', `${key}-h`)}
-        </Text>,
-      );
-      index += 1;
-      continue;
-    }
-
-    if (trimmed.startsWith('>')) {
-      const quoteLines: string[] = [];
-      while (index < lines.length && (lines[index] ?? '').trim().startsWith('>')) {
-        quoteLines.push((lines[index] ?? '').replace(/^\s*>\s?/, ''));
-        index += 1;
-      }
-      blocks.push(
-        <View key={key} style={styles.renderedQuoteBlock}>
-          {quoteLines.map((quoteLine, quoteIndex) => (
-            <Text key={`${key}-q-${quoteIndex}`} style={styles.renderedQuoteText}>
-              {renderInlineMarkdown(quoteLine, `${key}-q-${quoteIndex}`)}
-            </Text>
-          ))}
-        </View>,
-      );
-      continue;
-    }
-
-    const checklist = /^[-*]\s+\[([ xX])\]\s+(.+)$/.exec(trimmed);
-    if (checklist) {
-      blocks.push(
-        <View key={key} style={styles.renderedListRow}>
-          <Text style={styles.renderedCheckbox}>{checklist[1]?.trim().length ? '☑' : '☐'}</Text>
-          <Text style={styles.renderedListText}>
-            {renderInlineMarkdown(checklist[2] ?? '', `${key}-todo`)}
-          </Text>
-        </View>,
-      );
-      index += 1;
-      continue;
-    }
-
-    const ordered = /^(\d+)\.\s+(.+)$/.exec(trimmed);
-    if (ordered) {
-      blocks.push(
-        <View key={key} style={styles.renderedListRow}>
-          <Text style={styles.renderedListMarker}>{ordered[1]}.</Text>
-          <Text style={styles.renderedListText}>
-            {renderInlineMarkdown(ordered[2] ?? '', `${key}-ol`)}
-          </Text>
-        </View>,
-      );
-      index += 1;
-      continue;
-    }
-
-    const unordered = /^[-*]\s+(.+)$/.exec(trimmed);
-    if (unordered) {
-      blocks.push(
-        <View key={key} style={styles.renderedListRow}>
-          <Text style={styles.renderedListMarker}>•</Text>
-          <Text style={styles.renderedListText}>
-            {renderInlineMarkdown(unordered[1] ?? '', `${key}-ul`)}
-          </Text>
-        </View>,
-      );
-      index += 1;
-      continue;
-    }
-
-    blocks.push(
-      <Text key={key} style={styles.renderedParagraph}>
-        {renderInlineMarkdown(line, `${key}-p`)}
-      </Text>,
-    );
-    index += 1;
-  }
-
-  return blocks;
-}
-
-function RenderedImageAttachment({
-  filename,
-  image,
-  label,
-}: {
-  filename: string;
-  image?: PendingMarkdownImage;
-  label: string;
-}): React.ReactElement {
-  return (
-    <View style={styles.renderedImageBlock}>
-      {image ? (
-        <Image source={{ uri: image.uri }} style={styles.renderedImage} />
-      ) : (
-        <View style={styles.renderedImagePlaceholder}>
-          <ComposerIcon name="image" color="#64748b" size={22} />
-        </View>
-      )}
-      <Text numberOfLines={1} style={styles.renderedAttachmentLabel}>
-        {label || filename}
-      </Text>
-    </View>
-  );
-}
-
-function RenderedAttachment({
-  filename,
-  label,
-}: {
-  filename: string;
-  label: string;
-}): React.ReactElement {
-  const icon = /\.(m4a|mp3|caf|wav)$/i.test(filename) ? 'mic' : 'file';
-  return (
-    <View style={styles.renderedAttachmentBlock}>
-      <ComposerIcon name={icon} color="#2563eb" size={18} />
-      <View style={styles.renderedAttachmentText}>
-        <Text numberOfLines={1} style={styles.renderedAttachmentTitle}>{label}</Text>
-        <Text numberOfLines={1} style={styles.renderedAttachmentMeta}>{filename}</Text>
-      </View>
-    </View>
-  );
-}
-
-function renderInlineMarkdown(text: string, keyPrefix: string): React.ReactNode[] {
-  const nodes: React.ReactNode[] = [];
-  const pattern = /(\*\*[^*\n]+\*\*|~~[^~\n]+~~|==[^=\n]+==|\*[^*\n]+\*|#[^\s#]+)/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(text.slice(lastIndex, match.index));
-    }
-    const token = match[0];
-    const key = `${keyPrefix}-${match.index}`;
-    if (token.startsWith('**')) {
-      nodes.push(
-        <Text key={key} style={styles.inlineBold}>{token.slice(2, -2)}</Text>,
-      );
-    } else if (token.startsWith('~~')) {
-      nodes.push(
-        <Text key={key} style={styles.inlineStrike}>{token.slice(2, -2)}</Text>,
-      );
-    } else if (token.startsWith('==')) {
-      nodes.push(
-        <Text key={key} style={styles.inlineHighlight}>{token.slice(2, -2)}</Text>,
-      );
-    } else if (token.startsWith('*')) {
-      nodes.push(
-        <Text key={key} style={styles.inlineItalic}>{token.slice(1, -1)}</Text>,
-      );
-    } else {
-      nodes.push(
-        <Text key={key} style={styles.inlineTag}>{token}</Text>,
-      );
-    }
-    lastIndex = match.index + token.length;
-  }
-
-  if (lastIndex < text.length) {
-    nodes.push(text.slice(lastIndex));
-  }
-  return nodes.length > 0 ? nodes : [text];
-}
-
-function headingStyle(level: number): object {
-  switch (level) {
-    case 1:
-      return styles.renderedHeading1;
-    case 2:
-      return styles.renderedHeading2;
-    case 3:
-      return styles.renderedHeading3;
-    case 4:
-      return styles.renderedHeading4;
-    case 5:
-      return styles.renderedHeading5;
-    default:
-      return styles.renderedHeading6;
-  }
 }
 
 function AttachmentPill({
