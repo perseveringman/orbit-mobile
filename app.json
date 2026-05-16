@@ -32,6 +32,7 @@
       },
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Orbit Mobile needs microphone access to save voice captures locally.",
+        "NSBluetoothAlwaysUsageDescription": "Orbit Mobile uses Bluetooth to connect to your Newman X1 recorder and import recordings locally.",
         "NSSpeechRecognitionUsageDescription": "Orbit Mobile can transcribe voice captures on device when available.",
         "NSCameraUsageDescription": "Orbit Mobile needs camera access to save photo captures locally.",
         "NSPhotoLibraryUsageDescription": "Orbit Mobile needs photo library access to save selected images locally."

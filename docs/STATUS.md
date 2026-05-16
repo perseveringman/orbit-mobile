@@ -3,10 +3,10 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-16（Capture composer interaction polish）
+**Last updated**: 2026-05-16（录音坏 manifest 降级修复）
 **Last updater**: Codex
-**Current milestone**: **M0-M9 — local code complete; DeepSeek AI notes implemented; simulator build passed; device validation pending**
-**Next milestone**: 真机/iCloud/TestFlight 验收 + final transcription / diarization provider 选择
+**Current milestone**: **M0-M9 — local code complete; DeepSeek AI notes implemented; X1 BLE file import + realtime capture code complete**
+**Next milestone**: 真机/iCloud/TestFlight 验收 + 纽曼 X1 实时录音端到端复测 + direct X1 audio transcription / diarization provider 选择
 
 ---
 
@@ -24,6 +24,7 @@ TestFlight 前优先验收：
 4. Widget 真机：主屏/锁屏 Widget deep link 到 Capture，锁屏到输入 <2 秒
 5. 录音异常恢复真机：录音中杀进程 → 重开录音列表 → 提示保存/丢弃未保存录音
 6. iCloud 异常：飞行模式、未登录、空间满时本地 Capture 完整，失败状态可见
+7. 纽曼智能录音笔 X1 真机：扫描 → 连接 → 同步时间 → 读取电量/版本/容量 → 读取录音列表 → 导入录音，确认导入文件先进入本地 recording capture，再进入同步队列
 
 开始前必读（按顺序）：
 
@@ -63,10 +64,21 @@ TestFlight 前优先验收：
 - SyncWorker 对录音 capture 增加 AI gate：如果自动 AI notes 还在 queued/running 或等待重试，首次 iCloud 上传会暂缓；AI 成功、跳过或终态失败后再放行，避免 Mac 端优先 ingest 本地 heuristic 派生物。
 - SyncWorker 现在对 Mac 回执使用 ACK 优先级：先读 `processed/<id>/.acked`，再处理 `failed/<id>/.failed.json`；retryable failure 重传前会清理远端旧 `failed/<id>`，避免 stale failure 覆盖成功 ACK。
 - 录音详情/笔记的用户操作已真实持久化：片段反馈、片段书签、录音中即时标记、todo 勾选状态和自定义派生笔记都会写入 `recording_annotations`，不再依赖 UI 内存状态。
+- 2026-05-16 新增 iOS-only native module `orbit-recorder-device`，用静态逆向得到的 AE20/AE21/AE22 BLE 协议实现纽曼智能录音笔 X1 扫描、连接、同步时间、电量/版本/容量读取、录音列表读取和音频导入。导入音频先写入 app 临时文件，再通过 `createRecordingCapture()` 原子落入本机 SQLite + `captures/`，不绕过同步状态机。
+- 2026-05-16 纽曼 X1 真机初测通过：iPhone 15 Pro Max 连接 `录音笔X1-0B19`，读到电量 90%、版本 1.0.7、容量信息和 2 条录音列表；成功导入 `20260516125126.mp3`，BLE 收满 27,648/27,648 bytes，真机 app container 中确认生成 `kind='recording'` capture、`.complete`、`manifest.json`、`audio.mp3`，且音频 sha256 与 manifest 一致。X1 原始录音时间现在写入 attachment `recorded_at`，本次导入时间写入 local input timestamps，避免把“录音发生到导入完成”的间隔误记成输入耗时。
+- 2026-05-16 纽曼 X1 实时录音协议初测通过：X1 页面新增“实时录音协议测试”区和 `autoRealtime=1` deeplink 探针；`startRealtimeRecord` 后设备持续推 `type=1 cmd=1` RX 帧，payload 形如 `01 01 FF F3 48 C4 ...`，其中 `FF F3` 是 MP3 frame sync，说明 BLE notify 可实时传输 MP3 音频帧；`stopRealtimeRecord` 后设备返回 ACK 并在录音列表新增 mp3 文件（如 `20260516141128.mp3` 11s/46,080 bytes、`20260516141325.mp3` 4s/19,456 bytes）。下一步可把实时帧的 payload 去掉前 2 字节后流式写入临时 `.mp3`，停止后继续走 `createRecordingCapture()` 原子落地。
+- 2026-05-16 X1 “边录边导入”代码已实现：`startRealtimeImport()` 创建临时 `.mp3` 并发送 `[1,0]`，native 在 `type=1 cmd=1` 帧中去掉前 2 字节后 append MP3 数据，`stopRealtimeImport()` 发送 `[1,2]` 后 fsync/close 并返回文件；JS `saveRealtimeX1Audio()` 再通过 `createRecordingCapture()` 原子写入本地 recording capture。X1 页面新增“X1 实时录制”区，支持开始录制、停止并保存、取消、实时字节/时长展示，并新增 `autoRealtimeCapture=1` deeplink 用于自动扫描连接、录 5 秒、保存。当前实时字幕先复用 Apple Speech 监听 iPhone 麦克风，并以 `x1-realtime-ios-speech` 标记；它不是直接对 X1 BLE MP3 流做转写。2026-05-16 复测发现 X1 firmware 1.0.7 停止实时录音会回 `type=1 cmd=4 payload=010402`，其中 `state=2` 表示已停止确认而不是失败；native 已将 `status/state=2` 且已收到 MP3 bytes 的场景视为成功，避免误删临时音频。
+- 2026-05-16 X1 BLE 协议覆盖已按 APK `Cmd.java` 补齐：新增设备身份/SN 命令 `[0,12] -> [0,13]`、设置读取 `[0,5] -> [0,6]`、三项设置 `[0,7/8/9,bool]`、绑定/解绑 `[0,16]` / `[0,17]`、导入暂停/继续 `[2,10,bool]`、删除指定录音 `[2,8,count,names] -> [2,34]`、删除全部录音 `[2,9] -> [2,34]`，并把设备状态位 `[0,14]` 解码为播放/录音/USB/实时转写/导入/暂停/忙。X1 页面现在有设备设置开关、协议维护命令、文件级删除和删除全部确认；旧版 `[2,0] -> [2,1]` 列表命令只保留 raw 探针，因为当前官方 app 的业务代码也改用 `[2,30]` / `[2,32]` 新列表协议。
+- 2026-05-16 修复录音详情打开本地坏记录时直接显示 Expo `readAsStringAsync` 文件路径错误的问题：`loadRecordingDetail()` 现在会在 `manifest.json` 缺失/损坏时把 capture 标为 `conflicted` + `recording_manifest_unreadable`，并返回空结果；录音详情、笔记、Ask Orbit 统一显示用户可读的“本地文件不完整或已被移除”提示；非关键 JSON 附件读取失败会降级为空，不再拖垮整条录音。
 - M9 仍待真机人工验收：DeepSeek Key 配置/生成、录音中杀进程恢复、后台持续录音、锁屏/来电中断、长音频耗电、以及后续云端 final transcription/diarization provider 配置。
 - M2 已通过自动化验证；飞行模式、冷启动 <1s、真机杀进程恢复仍需人工在真机上执行。
 - M3 已通过自动化验证；iCloud 登录、空间满、Finder 可见性和真机上传状态仍需人工验收。
 - 2026-05-15 自动化验证：`npm run typecheck`、`npm run lint`、`npm test`、`pod install`、`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 已通过。
+- 2026-05-16 X1 BLE 验证：`npm run typecheck`、`pod install`、`npm run lint`、`npm test`、`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 已在真机安装并启动；因现有 React peer dependency 冲突，本次安装本地 module 使用了 `npm install --legacy-peer-deps`。
+- 2026-05-16 X1 realtime capture 验证：`npm run typecheck`、`npm run lint`、`npm test`、`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 已重新安装真机 build；`orbit-mobile://recording/x1?autoRealtimeCapture=1` 已启动扫描，已确认自动连接会跳过名字像但无 AE20 服务的 `23x1`，但本轮未扫到真实 X1，因此尚未完成 5 秒实时录制落地复测。
+- 2026-05-16 X1 realtime stop status 修复验证：`npm run typecheck`、`npm run lint`、`npm test`、`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 已重新安装真机 build；`orbit-mobile://recording/x1?autoRealtimeCapture=1` 成功连接 `录音笔X1-0B19`，收到实时 MP3 帧并在停止时看到 `payloadHex=010402`，本次按 stopped state 成功保存，日志显示 `action-complete auto-realtime-capture`。
+- 2026-05-16 X1 协议覆盖验证：`npm run typecheck`、`npm run lint`、`npm test`、`xcodebuild -workspace ios/OrbitMobile.xcworkspace -scheme OrbitMobile -configuration Debug -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 17' build` 已通过；`npx expo run:ios --device "00008130-001468400EF8001C" --configuration Debug` 已重新安装真机 build。新增绑定/解绑、删除、设置等命令仍需在 X1 真机上逐项人工确认，特别是删除/解绑这类会改变设备状态的命令。
+- 2026-05-16 录音坏 manifest 降级验证：`npx vitest run tests/recording/recording-service.test.ts`、`npm run typecheck`、`npm run lint`、`npm test` 已通过。
 - 本机 `周延博的 iPhone` 此前已完成 `iphoneos` Debug build、签名、安装和启动；本次 DeepSeek 变更新增 `expo-secure-store` native 依赖，需要重新真机安装后执行 Key 设置、录音 AI 生成、Ask、飞行模式/杀进程/iCloud Finder/Share/Widget 交互验收。
 - 2026-05-15 Mac inbound 自动化验证：`/Users/ryanbzhou/Developer/new-orbit` 的 `npm run typecheck`、`npm test`、`npm run lint` 已通过（lint 仍保留历史 warning）；focused `tests/mobile_inbound.test.ts` 通过。
 
@@ -153,6 +165,7 @@ TestFlight 前优先验收：
 | M7 Share Extension | implemented with idempotent/failure-tolerant import; true-device share sheet validation pending | M6 |
 | M8 便捷入口 | widget snapshot implemented; lock-screen/widget timing validation pending | M7 |
 | M9 长录音 + 录音笔记 UI | local implementation complete with persisted annotations, recovery, and DeepSeek AI notes; manual validation pending | M8 |
+| X1 录音笔 BLE 导入 | file import true-device validation passed; realtime MP3 capture code complete; realtime true-device save retest pending | M9 |
 
 ---
 
@@ -186,6 +199,8 @@ TestFlight 前优先验收：
 | iCloud Container 权限审核 | App Store 审核可能要求说明 | 隐私说明文档 + 明示数据流向 |
 | 图片“仅 Wi-Fi 原图”需要系统配合 | 本地会保留原图并写入 `sync_hint=wifi_only`，但 iCloud Drive 是否走蜂窝仍受 iOS 系统设置控制 | 如需 app 级强约束，后续先确认是否引入网络状态 native/dependency |
 | final transcription / diarization provider 未选择 | DeepSeek V4 Flash 已用于文本派生笔记，但不处理 `.m4a` final transcription 或 diarization | 先保留原始录音与 Apple Speech 转写；后续再选音频转写/说话人分离 provider |
+| 纽曼 X1 BLE 实时流端到端复测未完成 | 代码已把实时 MP3 帧边收边写入临时 `.mp3` 并在停止后原子保存 Capture，但本轮真机扫描未看到真实 X1 广播，未完成 5 秒自动保存复测 | 打开 `orbit-mobile://recording/x1?autoRealtimeCapture=1`，确认连接 `录音笔X1-*` 后自动录 5 秒并生成 recording capture；补测断连/取消/后台场景 |
+| X1 实时字幕目前不是直连 BLE 音频 | 当前实时字幕复用 Apple Speech 监听 iPhone 麦克风；保存的原始音频来自 X1 BLE MP3 流，二者可能因距离/环境不同而不完全一致 | 若必须“看到的字就是 X1 音频”，下一步在 native 层解码 BLE MP3 为 PCM，再接 Apple Speech/SFSpeechAudioBufferRecognitionRequest 或后续本地/用户自持 provider |
 
 ---
 

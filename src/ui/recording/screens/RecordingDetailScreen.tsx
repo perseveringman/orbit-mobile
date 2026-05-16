@@ -35,6 +35,7 @@ import { SegmentedTabs } from '../components/SegmentedTabs';
 import { SpeakerAvatar } from '../components/SpeakerAvatar';
 import { StatusBadge } from '../components/StatusBadge';
 import { Waveform } from '../components/Waveform';
+import { MISSING_RECORDING_MESSAGE, recordingErrorMessage } from '../errors';
 import { formatTimestamp } from '../format';
 import { colors, radius, spacing } from '../theme';
 
@@ -75,15 +76,16 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
       .then((loaded) => {
         if (!cancelled) {
           setDetail(loaded);
+          setLoadError(loaded ? null : MISSING_RECORDING_MESSAGE);
           if (loaded) {
             void loadAnnotations(loaded.meta.id).catch((error: unknown) => {
-              setLoadError(error instanceof Error ? error.message : String(error));
+              setLoadError(recordingErrorMessage(error));
             });
           }
         }
       })
       .catch((error: unknown) => {
-        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+        if (!cancelled) setLoadError(recordingErrorMessage(error));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -131,7 +133,7 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
             })
           : annotationsRepo.del(db, id, 'segment_feedback', String(segment.id)),
       )
-      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+      .catch((error: unknown) => setLoadError(recordingErrorMessage(error)));
   }
 
   function addBookmark(segment: TranscriptSegment): void {
@@ -155,7 +157,7 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
           payload: bookmark as unknown as Record<string, unknown>,
         }),
       )
-      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+      .catch((error: unknown) => setLoadError(recordingErrorMessage(error)));
   }
 
   useEffect(() => {
@@ -171,11 +173,11 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
     setLoadError(null);
     try {
       if (!detail?.audio_uri) {
-        setLoadError('recording.audio_missing');
+        setLoadError(recordingErrorMessage('recording.audio_missing'));
         return;
       }
       if (detail.audio_exists === false) {
-        setLoadError('recording.audio_file_missing');
+        setLoadError(recordingErrorMessage('recording.audio_file_missing'));
         return;
       }
       await prepareAudioPlayback();
@@ -208,7 +210,7 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
       await created.sound.playAsync();
       setPlaying(true);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      setLoadError(recordingErrorMessage(error));
       setPlaying(false);
     } finally {
       setPlaybackLoading(false);
@@ -227,7 +229,7 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
         setPlaying(true);
       }
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      setLoadError(recordingErrorMessage(error));
     }
   }
 
@@ -237,7 +239,7 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
     const next = rates[(currentIndex + 1) % rates.length] ?? 1;
     setPlaybackRate(next);
     void soundRef.current?.setRateAsync(next, true).catch((error: unknown) => {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      setLoadError(recordingErrorMessage(error));
     });
   }
 
@@ -252,7 +254,7 @@ export function RecordingDetailScreen({ id }: Props): React.ReactElement {
   if (!detail) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.notFound}>{loadError ?? '找不到这条录音'}</Text>
+        <Text style={styles.notFound}>{loadError ?? MISSING_RECORDING_MESSAGE}</Text>
         <Link href="/recording" style={styles.notFoundLink}>
           ← 返回录音列表
         </Link>
@@ -392,7 +394,7 @@ function handlePlaybackStatus(
 ): void {
   if (!status.isLoaded) {
     if (status.error) {
-      setError(status.error);
+      setError(recordingErrorMessage(status.error));
       setPlaying(false);
     }
     return;

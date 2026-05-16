@@ -28,6 +28,7 @@ import { loadRecordingDetail } from '../../../core/recording/recording-service';
 import { loadAppSettings } from '../../../core/settings/app-settings';
 import { openDb } from '../../../core/storage/db';
 import type { RecordingDetail } from '../../../types/recording';
+import { MISSING_RECORDING_MESSAGE, recordingErrorMessage } from '../errors';
 import { colors, radius, spacing } from '../theme';
 
 interface Props {
@@ -65,10 +66,13 @@ export function RecordingAskScreen({ id }: Props): React.ReactElement {
     let cancelled = false;
     loadRecordingDetail(id)
       .then((loaded) => {
-        if (!cancelled) setDetail(loaded);
+        if (!cancelled) {
+          setDetail(loaded);
+          setLoadError(loaded ? null : MISSING_RECORDING_MESSAGE);
+        }
       })
       .catch((error: unknown) => {
-        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+        if (!cancelled) setLoadError(recordingErrorMessage(error));
       });
     return () => {
       cancelled = true;

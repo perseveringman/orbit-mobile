@@ -1,0 +1,7 @@
+{
+  "name": "orbit-recorder-device",
+  "version": "0.0.0",
+  "description": "Orbit Mobile BLE bridge for Newman X1 recorder imports",
+  "main": "src/index.ts",
+  "private": true
+}

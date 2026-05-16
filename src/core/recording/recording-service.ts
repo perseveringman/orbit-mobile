@@ -1,11 +1,15 @@
 import { createCapture } from '../capture/atomic-write';
 import { enqueueRecordingNotesAiTask } from '../ai/worker';
+import { validateManifest } from '../capture/manifest';
 import type { CaptureAttachment, CaptureManifest } from '../capture/types';
 import * as capturesRepo from '../storage/captures-repo';
+import * as eventsRepo from '../storage/events-repo';
 import * as recordingsRepo from '../storage/recordings-repo';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
 import { expoFileSystem, joinPath, type FileSystemAdapter } from '../../utils/fs';
 import { generateSessionId } from '../../utils/id';
+import { isoNow } from '../../utils/time';
+import type { CaptureRow } from '../../types/capture';
 import type {
   DerivativeKind,
   DerivativePayload,
@@ -40,6 +44,9 @@ interface WaveformPayload {
 export interface CreateRecordingInput {
   title: string;
   audioUri: string;
+  audioFilename?: string;
+  audioMime?: string;
+  recordedAt?: string;
   durationMs: number;
   startedAt: string;
   languageHints: string[];
@@ -117,11 +124,11 @@ export async function createRecordingCapture(
   const content = [safeTitle, plainTranscript].filter(Boolean).join('\n\n');
   const audioAttachment: CaptureAttachment = {
     type: 'audio',
-    filename: 'audio.m4a',
+    filename: normalizeAudioFilename(input.audioFilename),
     localUri: input.audioUri,
-    mime: 'audio/m4a',
+    mime: input.audioMime?.trim() || 'audio/m4a',
     duration_ms: input.durationMs,
-    recorded_at: input.startedAt,
+    recorded_at: input.recordedAt || input.startedAt,
     transcription: plainTranscript || undefined,
     transcription_source: input.partialProvider,
   };
@@ -227,9 +234,11 @@ export async function loadRecordingDetail(
   ]);
   if (!recording || !capture) return null;
 
-  const manifest = JSON.parse(
-    await fs.readString(joinPath(capture.local_path, 'manifest.json')),
-  ) as CaptureManifest;
+  const manifest = await readCaptureManifest(fs, capture.local_path);
+  if (!manifest) {
+    await markLocalCaptureIncomplete(db, capture, 'recording_manifest_unreadable');
+    return null;
+  }
   const transcript = await readJsonAttachment<FinalTranscript>(
     fs,
     capture.local_path,
@@ -371,6 +380,36 @@ async function readDerivativeMap(
   return derivatives;
 }
 
+async function readCaptureManifest(
+  fs: FileSystemAdapter,
+  localPath: string,
+): Promise<CaptureManifest | null> {
+  const manifest = await readJsonFile<CaptureManifest>(fs, joinPath(localPath, 'manifest.json'));
+  if (!manifest) return null;
+  try {
+    validateManifest(manifest);
+    return manifest;
+  } catch {
+    return null;
+  }
+}
+
+async function markLocalCaptureIncomplete(
+  db: SQLiteDatabaseLike,
+  capture: CaptureRow,
+  reason: string,
+): Promise<void> {
+  if (capture.sync_state === 'conflicted' && capture.sync_last_error === reason) {
+    return;
+  }
+  await capturesRepo.updateSyncState(db, capture.id, {
+    sync_state: 'conflicted',
+    sync_last_error: reason,
+    sync_next_retry_at: null,
+  });
+  await eventsRepo.append(db, capture.id, 'failed', { reason }, isoNow());
+}
+
 async function readWaveformSamples(
   fs: FileSystemAdapter,
   localPath: string,
@@ -394,9 +433,13 @@ async function readJsonAttachment<T>(
 }
 
 async function readJsonFile<T>(fs: FileSystemAdapter, path: string): Promise<T | null> {
-  const info = await fs.getInfo(path);
-  if (!info.exists || info.isDirectory) return null;
-  return JSON.parse(await fs.readString(path)) as T;
+  try {
+    const info = await fs.getInfo(path);
+    if (!info.exists || info.isDirectory) return null;
+    return JSON.parse(await fs.readString(path)) as T;
+  } catch {
+    return null;
+  }
 }
 
 function fallbackTranscript(content: string, durationMs: number): FinalTranscript {
@@ -480,6 +523,19 @@ function formatDuration(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
   const minutes = Math.floor(seconds / 60);
   return `${minutes} 分 ${seconds % 60} 秒`;
+}
+
+function normalizeAudioFilename(filename?: string): string {
+  const fallback = 'audio.m4a';
+  if (!filename) return fallback;
+  const base = filename
+    .trim()
+    .replace(/^\/+|\/+$/g, '')
+    .split(/[\\/]/)
+    .pop()
+    ?.replace(/[^a-zA-Z0-9._-]/g, '-');
+  if (!base || !/^[a-zA-Z0-9._-]+$/.test(base)) return fallback;
+  return base.includes('.') ? base : fallback;
 }
 
 function labelForKind(kind: 'decisions' | 'risks' | 'todos'): string {

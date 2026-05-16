@@ -142,14 +142,23 @@ export function RecordingsListScreen(): React.ReactElement {
           ← 记一条
         </Link>
         <Text style={styles.title}>录音</Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push('/recording/new')}
-          style={({ pressed }) => [styles.recordEntry, pressed && styles.pressed]}
-        >
-          <View style={styles.recordDot} />
-          <Text style={styles.recordEntryText}>开始录</Text>
-        </Pressable>
+        <View style={styles.headerActions}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/recording/x1')}
+            style={({ pressed }) => [styles.x1Entry, pressed && styles.pressed]}
+          >
+            <Text style={styles.x1EntryText}>X1</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/recording/new')}
+            style={({ pressed }) => [styles.recordEntry, pressed && styles.pressed]}
+          >
+            <View style={styles.recordDot} />
+            <Text style={styles.recordEntryText}>开始录</Text>
+          </Pressable>
+        </View>
       </View>
 
       <ScrollView
@@ -312,6 +321,25 @@ const styles = StyleSheet.create({
   title: {
     color: colors.textPrimary,
     fontSize: 20,
+    fontWeight: '800',
+  },
+  headerActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  x1Entry: {
+    alignItems: 'center',
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.pill,
+    justifyContent: 'center',
+    minWidth: 38,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  x1EntryText: {
+    color: colors.accent,
+    fontSize: 13,
     fontWeight: '800',
   },
   recordEntry: {

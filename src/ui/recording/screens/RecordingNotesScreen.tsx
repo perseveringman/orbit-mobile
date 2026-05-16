@@ -36,6 +36,7 @@ import type {
   RecordingTemplate,
 } from '../../../types/recording';
 import { SegmentedTabs } from '../components/SegmentedTabs';
+import { MISSING_RECORDING_MESSAGE, recordingErrorMessage } from '../errors';
 import { formatLongDateTime, formatTimestamp } from '../format';
 import { TemplateSheet } from './TemplateSheet';
 import { colors, radius, spacing } from '../theme';
@@ -62,6 +63,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
     setLoading(true);
     const loaded = await loadRecordingDetail(id);
     setDetail(loaded);
+    setLoadError(loaded ? null : MISSING_RECORDING_MESSAGE);
     const db = await openDb();
     const rows = loaded
       ? await annotationsRepo.listByRecording(db, loaded.meta.id)
@@ -87,7 +89,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
     let cancelled = false;
     reload()
       .catch((error: unknown) => {
-        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+        if (!cancelled) setLoadError(recordingErrorMessage(error));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -123,7 +125,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
   if (!detail) {
     return (
       <View style={[styles.container, styles.center]}>
-        <Text style={styles.notFound}>{loadError ?? '找不到这条录音'}</Text>
+        <Text style={styles.notFound}>{loadError ?? MISSING_RECORDING_MESSAGE}</Text>
       </View>
     );
   }
@@ -148,7 +150,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
         ? await generateCustomDerivative(new DeepSeekClient(settings.ai, key), template, detail)
         : generateLocalDerivative(template, detail);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      setLoadError(recordingErrorMessage(error));
       setAiBusy(false);
       return;
     }
@@ -164,7 +166,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
           payload: generated as unknown as Record<string, unknown>,
         }),
       )
-      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)))
+      .catch((error: unknown) => setLoadError(recordingErrorMessage(error)))
       .finally(() => setAiBusy(false));
   }
 
@@ -178,7 +180,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
       await runAiWorkerTick({ db, limit: 1 });
       await reload();
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      setLoadError(recordingErrorMessage(error));
     } finally {
       setAiBusy(false);
     }
@@ -197,7 +199,7 @@ export function RecordingNotesScreen({ id }: Props): React.ReactElement {
           payload: { done: next },
         }),
       )
-      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+      .catch((error: unknown) => setLoadError(recordingErrorMessage(error)));
   }
 
   return (

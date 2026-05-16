@@ -92,6 +92,8 @@ PODS:
     - ExpoModulesCore
   - OrbitImageTools (0.0.0):
     - ExpoModulesCore
+  - OrbitRecorderDevice (0.0.0):
+    - ExpoModulesCore
   - OrbitSpeechRecognition (0.0.0):
     - ExpoModulesCore
   - RCTDeprecation (0.81.5)
@@ -1865,6 +1867,7 @@ DEPENDENCIES:
   - OrbitDurableFS (from `../modules/orbit-durable-fs/ios`)
   - OrbitICloudBridge (from `../modules/orbit-icloud-bridge/ios`)
   - OrbitImageTools (from `../modules/orbit-image-tools/ios`)
+  - OrbitRecorderDevice (from `../modules/orbit-recorder-device/ios`)
   - OrbitSpeechRecognition (from `../modules/orbit-speech-recognition/ios`)
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
   - RCTRequired (from `../node_modules/react-native/Libraries/Required`)
@@ -1983,6 +1986,8 @@ EXTERNAL SOURCES:
     :path: "../modules/orbit-icloud-bridge/ios"
   OrbitImageTools:
     :path: "../modules/orbit-image-tools/ios"
+  OrbitRecorderDevice:
+    :path: "../modules/orbit-recorder-device/ios"
   OrbitSpeechRecognition:
     :path: "../modules/orbit-speech-recognition/ios"
   RCTDeprecation:
@@ -2144,6 +2149,7 @@ SPEC CHECKSUMS:
   OrbitDurableFS: dcd4a2d006b94c9938dfece2cc7a8423b97457d3
   OrbitICloudBridge: 435ec3637f075897a7a15b2c534cecc1c1916e22
   OrbitImageTools: 18d97b38654da1a502b3d22d7f24cea1a13e6766
+  OrbitRecorderDevice: 3a8155def5a9c7144014ade54c4455ac937d3913
   OrbitSpeechRecognition: 598c67cb55977b60e59a6fb3b5a101e233e3cb83
   RCTDeprecation: 943572d4be82d480a48f4884f670135ae30bf990
   RCTRequired: 8f3cfc90cc25cf6e420ddb3e7caaaabc57df6043

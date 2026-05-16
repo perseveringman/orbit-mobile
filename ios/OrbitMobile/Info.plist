@@ -47,6 +47,8 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>Orbit Mobile needs camera access to save photo captures locally.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Orbit Mobile uses Bluetooth to connect to your Newman X1 recorder and import recordings locally.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Orbit Mobile needs microphone access to save voice captures locally.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
