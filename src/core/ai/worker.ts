@@ -88,6 +88,7 @@ export async function runAiWorkerTick(options: AiWorkerTickOptions = {}): Promis
       await eventsRepo.append(db, task.capture_id, 'ai_generated', {
         provider: settings.ai.provider,
         model: settings.ai.model,
+        semantic_title: notes.semanticTitle ?? null,
       });
       result.succeeded += 1;
     } catch (error) {

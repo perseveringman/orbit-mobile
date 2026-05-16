@@ -6,6 +6,7 @@ import { createRecordingCapture, loadRecordingDetail } from '@/core/recording/re
 import * as aiTasksRepo from '@/core/storage/ai-tasks-repo';
 import * as capturesRepo from '@/core/storage/captures-repo';
 import { setValue } from '@/core/storage/device-info';
+import * as recordingsRepo from '@/core/storage/recordings-repo';
 import { createMigratedTestDb } from '../setup/in-memory-db';
 import { MemoryFileSystem } from '../setup/memory-fs';
 import { __clearSecureStore } from '../setup/expo-secure-store-mock';
@@ -29,6 +30,7 @@ describe('AI worker', () => {
         choices: [{
           message: {
             content: JSON.stringify({
+              semantic_title: '本地录音方案评审',
               summary_markdown: '## 概述\nDeepSeek 生成的总结',
               outline: [{ title: '先做本地录音', start_ms: 0 }],
               decisions: [{ title: '先做本地录音', body: '决定先做本地录音', start_ms: 0, end_ms: 1000 }],
@@ -59,9 +61,17 @@ describe('AI worker', () => {
     const task = await aiTasksRepo.getByCapture(db, created.meta.id);
     const detail = await loadRecordingDetail(created.meta.id, { db, fs });
     const capture = await capturesRepo.get(db, created.meta.id);
+    const recording = await recordingsRepo.get(db, created.meta.id);
+    const manifest = JSON.parse(await fs.readString(`${capture?.local_path}/manifest.json`)) as {
+      content: string;
+    };
 
     expect(result).toMatchObject({ processed: 1, succeeded: 1 });
     expect(task).toMatchObject({ status: 'succeeded', attempts: 1 });
+    expect(recording?.title).toBe('本地录音方案评审');
+    expect(detail?.meta.title).toBe('本地录音方案评审');
+    expect(manifest.content.startsWith('本地录音方案评审\n\n')).toBe(true);
+    expect(capture?.content_preview).toContain('本地录音方案评审');
     expect(detail?.derivatives.summary?.provider).toBe('deepseek-v4-flash');
     expect(detail?.derivatives.summary?.body).toContain('DeepSeek 生成的总结');
     await expect(fs.readString(`${capture?.local_path}/summary.json`)).resolves.toContain('deepseek-v4-flash');

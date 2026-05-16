@@ -83,7 +83,7 @@ export function VoiceButton({
         void end();
       }}
     >
-      <ComposerIcon name="mic" color={recording ? '#dc2626' : '#262626'} size={variant === 'toolbar' ? 24 : 22} />
+      <ComposerIcon name="mic" color={recording ? '#dc2626' : '#262626'} size={variant === 'toolbar' ? 21 : 22} />
     </Pressable>
   );
 }
@@ -102,9 +102,9 @@ const styles = StyleSheet.create({
   toolbarButton: {
     alignItems: 'center',
     borderRadius: 18,
-    height: 42,
+    height: 36,
     justifyContent: 'center',
-    width: 42,
+    width: 36,
   },
   recording: {
     backgroundColor: '#fff1f2',

@@ -10,6 +10,7 @@ import { expoFileSystem, joinPath, type FileSystemAdapter } from '../../utils/fs
 import { generateSessionId } from '../../utils/id';
 import { isoNow } from '../../utils/time';
 import type { CaptureRow } from '../../types/capture';
+import { recordingTimestampTitle } from './title';
 import type {
   DerivativeKind,
   DerivativePayload,
@@ -593,12 +594,7 @@ function labelForKind(kind: 'decisions' | 'risks' | 'todos'): string {
 }
 
 function defaultTitle(date: Date): string {
-  return `录音 ${date.toLocaleString('zh-Hans-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })}`;
+  return recordingTimestampTitle(date, 'iphone');
 }
 
 function fileUri(path: string): string {

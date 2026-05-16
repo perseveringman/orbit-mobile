@@ -67,7 +67,7 @@ export function MediaPicker({
       ]}
       onPress={open}
     >
-      <ComposerIcon name="image" color="#262626" size={variant === 'toolbar' ? 24 : 23} />
+      <ComposerIcon name="image" color="#262626" size={variant === 'toolbar' ? 21 : 23} />
     </Pressable>
   );
 }
@@ -86,9 +86,9 @@ const styles = StyleSheet.create({
   toolbarButton: {
     alignItems: 'center',
     borderRadius: 18,
-    height: 42,
+    height: 36,
     justifyContent: 'center',
-    width: 42,
+    width: 36,
   },
   disabled: {
     opacity: 0.35,

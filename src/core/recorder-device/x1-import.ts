@@ -1,6 +1,7 @@
 import { importAudio, type X1AudioFile, type X1ImportResult, type X1RealtimeImportResult } from 'orbit-recorder-device';
 
 import { createRecordingCapture, type LivePartialInput } from '../recording/recording-service';
+import { recordingTimestampTitle } from '../recording/title';
 import { openDb } from '../storage/db';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
 import { expoFileSystem } from '../../utils/fs';
@@ -94,8 +95,8 @@ export async function saveRealtimeX1Audio(
 }
 
 function titleFromFilename(filename: string): string {
-  const base = filename.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
-  return base ? `X1 ${base}` : 'X1 录音导入';
+  const startedAt = startedAtFromFilename(filename);
+  return recordingTimestampTitle(startedAt ? new Date(startedAt) : new Date(), 'x1');
 }
 
 function audioAttachmentFilename(filename: string): string {

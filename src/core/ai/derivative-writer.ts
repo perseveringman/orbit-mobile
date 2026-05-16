@@ -1,6 +1,8 @@
 import type { CaptureManifest } from '../capture/types';
 import { sha256String } from '../capture/hash';
+import { contentPreview } from '../capture/manifest';
 import * as capturesRepo from '../storage/captures-repo';
+import * as recordingsRepo from '../storage/recordings-repo';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
 import { expoFileSystem, joinPath, type FileSystemAdapter } from '../../utils/fs';
 import { generateSessionId } from '../../utils/id';
@@ -43,13 +45,26 @@ export async function writeAiRecordingNotes(
     }
   }
 
+  if (notes.semanticTitle) {
+    manifest.content = replaceRecordingContentTitle(manifest.content, notes.semanticTitle);
+  }
+
   const manifestContents = `${JSON.stringify(manifest, null, 2)}\n`;
+  const manifestSha256 = await sha256String(manifestContents);
   await atomicWriteString(fs, manifestPath, manifestContents);
   await atomicWriteString(
     fs,
     joinPath(capture.local_path, 'manifest.json.sha256'),
-    await sha256String(manifestContents),
+    manifestSha256,
   );
+  await capturesRepo.updateLocalMetadata(db, captureId, {
+    byte_size: await directorySize(fs, capture.local_path),
+    content_hash: manifestSha256,
+    content_preview: contentPreview(manifest.content),
+  });
+  if (notes.semanticTitle) {
+    await recordingsRepo.updateTitle(db, captureId, notes.semanticTitle);
+  }
 }
 
 async function atomicWriteString(
@@ -66,4 +81,23 @@ async function atomicWriteString(
 
 function utf8ByteLength(value: string): number {
   return unescape(encodeURIComponent(value)).length;
+}
+
+function replaceRecordingContentTitle(content: string, title: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return title;
+  const parts = trimmed.split(/\n{2,}/);
+  return [title, ...parts.slice(1)].filter(Boolean).join('\n\n');
+}
+
+async function directorySize(fs: FileSystemAdapter, path: string): Promise<number> {
+  const info = await fs.getInfo(path);
+  if (!info.exists) return 0;
+  if (!info.isDirectory) return info.size ?? 0;
+  const children = await fs.readDir(path);
+  let total = 0;
+  for (const child of children) {
+    total += await directorySize(fs, joinPath(path, child));
+  }
+  return total;
 }

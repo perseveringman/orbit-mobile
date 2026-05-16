@@ -9,14 +9,34 @@
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { Link, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {
+  addConnectionStateListener,
+  addDeviceStatusListener,
+  addScanResultListener,
+  connect,
+  getBattery,
+  getDeviceIdentity,
+  getState,
+  getStorage,
+  getVersion,
+  sendCheckTime,
+  startScan,
+  stopScan,
+  type X1ConnectionStateEvent,
+  type X1DeviceIdentity,
+  type X1DeviceStatusEvent,
+  type X1DiscoveredDevice,
+  type X1StorageInfo,
+} from 'orbit-recorder-device';
 
 import type { RecordingMeta } from '../../../types/recording';
 import {
@@ -50,16 +70,44 @@ interface RecordingsListScreenProps {
   embedded?: boolean;
 }
 
+interface X1DeviceSnapshot {
+  battery: number | null;
+  identity: X1DeviceIdentity | null;
+  storage: X1StorageInfo | null;
+  version: string | null;
+}
+
+const EMPTY_X1_DEVICE_INFO: X1DeviceSnapshot = {
+  battery: null,
+  identity: null,
+  storage: null,
+  version: null,
+};
+
+const X1_SERVICE_UUID = '0000ae20-0000-1000-8000-00805f9b34fb';
+
 export function RecordingsListScreen({
   embedded = false,
 }: RecordingsListScreenProps): React.ReactElement {
   const router = useRouter();
+  const x1ConnectingRef = useRef(false);
+  const x1ConnectedRef = useRef(false);
+  const x1ScanRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [recordings, setRecordings] = useState<RecordingMeta[]>([]);
   const [recoverable, setRecoverable] = useState<RecoveredVoiceRecording[]>([]);
   const [recoveringUri, setRecoveringUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [x1Connection, setX1Connection] = useState<X1ConnectionStateEvent>({
+    bluetoothState: 'unknown',
+    connectionState: 'idle',
+    isScanning: false,
+  });
+  const [x1DeviceInfo, setX1DeviceInfo] = useState<X1DeviceSnapshot>(EMPTY_X1_DEVICE_INFO);
   const groups = useMemo(() => groupByDate(recordings), [recordings]);
+  const x1Connected = x1Connection.connectionState === 'connected';
+  const x1Status = describeX1Connection(x1Connection);
+  const x1DeviceName = x1Connection.device?.name?.trim() || null;
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +131,164 @@ export function RecordingsListScreen({
       cancelled = true;
     };
   }, []);
+
+  const applyX1DeviceStatus = useCallback((event: X1DeviceStatusEvent): void => {
+    if (isX1BatteryStatus(event)) {
+      setX1DeviceInfo((prev) => ({ ...prev, battery: event.battery }));
+      return;
+    }
+    if (isX1VersionStatus(event)) {
+      setX1DeviceInfo((prev) => ({ ...prev, version: event.version }));
+      return;
+    }
+    if (isX1StorageStatus(event)) {
+      setX1DeviceInfo((prev) => ({
+        ...prev,
+        storage: {
+          freeBytes: event.freeBytes,
+          totalBytes: event.totalBytes,
+          usedBytes: event.usedBytes,
+        },
+      }));
+      return;
+    }
+    if (isX1DeviceIdentity(event)) {
+      setX1DeviceInfo((prev) => ({ ...prev, identity: event }));
+    }
+  }, []);
+
+  const refreshX1DeviceInfo = useCallback(async (): Promise<void> => {
+    const [battery, version, storage, identity] = await Promise.all([
+      getBattery().catch(() => null),
+      getVersion().catch(() => null),
+      getStorage().catch(() => null),
+      getDeviceIdentity().catch(() => null),
+    ]);
+    setX1DeviceInfo((prev) => ({
+      battery: battery !== null ? battery : prev.battery,
+      identity: identity !== null ? identity : prev.identity,
+      storage: storage !== null ? storage : prev.storage,
+      version: version !== null ? version : prev.version,
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (process.env.EXPO_OS !== 'ios') return undefined;
+    let cancelled = false;
+    function clearScanRetry(): void {
+      if (x1ScanRetryTimerRef.current !== null) {
+        clearTimeout(x1ScanRetryTimerRef.current);
+        x1ScanRetryTimerRef.current = null;
+      }
+    }
+
+    function scheduleScan(delayMs = 0): void {
+      clearScanRetry();
+      x1ScanRetryTimerRef.current = setTimeout(() => {
+        x1ScanRetryTimerRef.current = null;
+        if (cancelled || x1ConnectingRef.current || x1ConnectedRef.current) return;
+        void startScan()
+          .then(getState)
+          .then((state) => {
+            if (!cancelled) setX1Connection(state);
+          })
+          .catch(() => {
+            if (!cancelled) scheduleScan(5000);
+          });
+      }, delayMs);
+    }
+
+    async function connectX1Device(device: X1DiscoveredDevice): Promise<void> {
+      if (cancelled || x1ConnectingRef.current || x1ConnectedRef.current) return;
+      x1ConnectingRef.current = true;
+      setX1Connection((prev) => ({
+        ...prev,
+        connectionState: 'connecting',
+        device,
+        isScanning: false,
+      }));
+      try {
+        clearScanRetry();
+        await stopScan().catch(() => undefined);
+        await connect(device.id);
+        if (cancelled) return;
+        await sendCheckTime().catch(() => undefined);
+        const state = await getState().catch(() => ({
+          bluetoothState: 'poweredOn',
+          connectionState: 'connected',
+          device,
+          isScanning: false,
+        }));
+        if (cancelled) return;
+        x1ConnectedRef.current = state.connectionState === 'connected';
+        setX1Connection(state);
+        await refreshX1DeviceInfo().catch(() => undefined);
+      } catch {
+        if (!cancelled) {
+          x1ConnectedRef.current = false;
+          setX1DeviceInfo(EMPTY_X1_DEVICE_INFO);
+          scheduleScan(2500);
+        }
+      } finally {
+        x1ConnectingRef.current = false;
+      }
+    }
+
+    const scanSub = addScanResultListener((device) => {
+      if (!isAutoConnectX1Device(device)) return;
+      void connectX1Device(device);
+    });
+    const connectionSub = addConnectionStateListener((state) => {
+      if (cancelled) return;
+      x1ConnectedRef.current = state.connectionState === 'connected';
+      setX1Connection(state);
+      if (state.connectionState === 'connected') {
+        clearScanRetry();
+        void stopScan().catch(() => undefined);
+        void refreshX1DeviceInfo();
+      } else {
+        setX1DeviceInfo(EMPTY_X1_DEVICE_INFO);
+        if (state.bluetoothState === 'poweredOn' || state.bluetoothState === 'unknown') {
+          scheduleScan(1000);
+        }
+      }
+    });
+    const statusSub = addDeviceStatusListener((event) => {
+      if (!cancelled) applyX1DeviceStatus(event);
+    });
+
+    getState()
+      .then((state) => {
+        if (cancelled) return;
+        x1ConnectedRef.current = state.connectionState === 'connected';
+        setX1Connection(state);
+        if (state.connectionState === 'connected') {
+          void refreshX1DeviceInfo();
+        } else {
+          scheduleScan(state.bluetoothState === 'poweredOn' || state.bluetoothState === 'unknown' ? 0 : 2500);
+        }
+      })
+      .catch(() => undefined);
+
+    const refreshTimer = setInterval(() => {
+      if (cancelled) return;
+      if (x1ConnectedRef.current) {
+        void refreshX1DeviceInfo();
+      } else {
+        scheduleScan(0);
+      }
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      clearScanRetry();
+      clearInterval(refreshTimer);
+      void stopScan().catch(() => undefined);
+      scanSub.remove();
+      connectionSub.remove();
+      statusSub.remove();
+    };
+  }, [applyX1DeviceStatus, refreshX1DeviceInfo]);
 
   async function refreshList(): Promise<void> {
     const [items, recovered] = await Promise.all([
@@ -141,6 +347,23 @@ export function RecordingsListScreen({
     }
   }
 
+  function showX1Details(): void {
+    const rows = [
+      `状态：${x1Status.badge}`,
+      `设备：${x1DeviceName ?? '未连接'}`,
+      `电量：${formatBattery(x1DeviceInfo.battery)}`,
+      `容量：${formatX1Storage(x1DeviceInfo.storage)}`,
+      `固件：${x1DeviceInfo.version ?? '读取中'}`,
+    ];
+    Alert.alert('X1 录音卡', rows.join('\n'), [
+      {
+        text: '通信测试',
+        onPress: () => router.push('/recording/x1'),
+      },
+      { text: '关闭', style: 'cancel' },
+    ]);
+  }
+
   return (
     <View style={[styles.container, embedded && styles.containerEmbedded]}>
       {!embedded ? (
@@ -160,54 +383,82 @@ export function RecordingsListScreen({
         {loading ? <Text style={styles.hint}>正在读取本机录音…</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <View style={styles.entryGrid}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.push('/recording/new')}
-            style={({ pressed }) => [styles.entryCard, styles.iphoneCard, pressed && styles.pressed]}
-          >
+          <View style={[styles.entryCard, styles.iphoneCard]}>
             <View style={styles.entryTop}>
-              <View style={styles.entryIcon}>
-                <View style={styles.entryRecordDot} />
+              <Text numberOfLines={1} style={styles.entrySourceLabel}>iPhone 麦克风</Text>
+              <Text style={[styles.entryBadge, styles.entryBadgeSuccess]}>可用</Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/recording/new')}
+              style={({ pressed }) => [styles.entryMain, pressed && styles.pressed]}
+            >
+              <View style={styles.entryTextBlock}>
+                <Text numberOfLines={1} style={styles.entryDetail}>本机录音 · 实时转写</Text>
               </View>
-              <Text style={styles.entryBadge}>内置</Text>
-            </View>
-            <Text numberOfLines={2} style={styles.entryTitle}>iPhone 录音</Text>
-            <Text style={styles.entryMeta}>手机麦克风</Text>
-            <Text style={styles.entryDetail}>
-              实时转写、时间点、笔记、拍照和文件都在同一页完成。
-            </Text>
-            <View style={styles.entryPrimary}>
+              <View style={styles.entryChipRow}>
+                <EntryChip text="原始音频" />
+                <EntryChip text="本机保存" />
+                <EntryChip text="Apple Speech" wide />
+              </View>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.push('/recording/new')}
+              style={({ pressed }) => [styles.entryPrimary, pressed && styles.pressed]}
+            >
               <Text style={styles.entryPrimaryText}>开始录音</Text>
-            </View>
-          </Pressable>
+            </Pressable>
+          </View>
 
           <View style={[styles.entryCard, styles.x1Card]}>
+            <View style={styles.entryTop}>
+              <Text numberOfLines={1} style={styles.entrySourceLabel}>X1 录音卡</Text>
+              <View style={styles.entryTopActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={showX1Details}
+                  style={({ pressed }) => [styles.entryDetailButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.entryDetailButtonText}>详情</Text>
+                </Pressable>
+                <Text style={[styles.entryBadge, x1Connected ? styles.entryBadgeSuccess : styles.entryBadgeWarning]}>
+                  {x1Status.badge}
+                </Text>
+              </View>
+            </View>
             <Pressable
               accessibilityRole="button"
               onPress={() => router.push('/recording/x1-session')}
               style={({ pressed }) => [styles.entryMain, pressed && styles.pressed]}
             >
-              <View style={styles.entryTop}>
-                <View style={styles.entryIcon}>
-                  <Text style={styles.entryIconText}>X1</Text>
+              <View style={styles.entryTextBlock}>
+                <Text numberOfLines={1} style={styles.entryDetail}>
+                  {x1Connected
+                    ? x1DeviceName ?? '录音卡已连接'
+                    : x1Status.hint}
+                </Text>
+              </View>
+              {x1Connected ? (
+                <View style={styles.entryChipRow}>
+                  <EntryChip text={`电量 ${formatBattery(x1DeviceInfo.battery)}`} />
+                  <EntryChip text={`固件 ${x1DeviceInfo.version ?? '读取中'}`} />
+                  <EntryChip text={`容量 ${formatX1Storage(x1DeviceInfo.storage)}`} wide />
                 </View>
-                <Text style={styles.entryBadge}>BLE</Text>
-              </View>
-              <Text numberOfLines={2} style={styles.entryTitle}>X1 录音卡</Text>
-              <Text style={styles.entryMeta}>纽曼智能录音笔</Text>
-              <Text style={styles.entryDetail}>
-                连接后显示电量、固件、容量、MAC；录音过程和 iPhone 页面一致。
-              </Text>
-              <View style={styles.entryPrimary}>
-                <Text style={styles.entryPrimaryText}>X1 录音</Text>
-              </View>
+              ) : (
+                <View style={styles.entryChipRow}>
+                  <EntryChip text={x1Status.badge === '扫描中' ? '自动搜索中' : x1Status.badge} />
+                  <EntryChip text="开机即连接" />
+                  <EntryChip text="靠近 iPhone" wide />
+                </View>
+              )}
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push('/recording/x1')}
-              style={({ pressed }) => [styles.entrySecondary, pressed && styles.pressed]}
+              onPress={() => router.push('/recording/x1-session')}
+              style={({ pressed }) => [styles.entryPrimary, pressed && styles.pressed]}
             >
-              <Text style={styles.entrySecondaryText}>通信测试</Text>
+              <Text style={styles.entryPrimaryText}>开始录音</Text>
             </Pressable>
           </View>
         </View>
@@ -344,6 +595,125 @@ function groupByDate(items: RecordingMeta[]): Group[] {
     }));
 }
 
+function EntryChip({
+  text,
+  wide = false,
+}: {
+  text: string;
+  wide?: boolean;
+}): React.ReactElement {
+  return (
+    <View style={[styles.entryChip, wide && styles.entryChipWide]}>
+      <Text numberOfLines={1} style={styles.entryChipText}>{text}</Text>
+    </View>
+  );
+}
+
+function describeX1Connection(state: X1ConnectionStateEvent): {
+  badge: string;
+  hint: string;
+  instruction: string;
+  title: string;
+} {
+  if (state.connectionState === 'connected') {
+    return {
+      badge: '已连接',
+      hint: state.device?.name || '录音卡已连接',
+      instruction: '',
+      title: '连接参数',
+    };
+  }
+  if (state.bluetoothState === 'poweredOff' || state.bluetoothState === 'unauthorized') {
+    return {
+      badge: '未连接',
+      hint: '蓝牙打开后才能发现录音卡。',
+      instruction: '请先打开 iPhone 蓝牙，再将录音卡开机。',
+      title: '蓝牙不可用',
+    };
+  }
+  if (state.isScanning || state.connectionState === 'scanning') {
+    return {
+      badge: '扫描中',
+      hint: '正在查找附近设备。',
+      instruction: '保持录音卡开机，并靠近 iPhone。',
+      title: '正在扫描',
+    };
+  }
+  if (state.connectionState === 'connecting' || state.connectionState === 'discovering') {
+    return {
+      badge: '连接中',
+      hint: '正在建立 BLE 连接。',
+      instruction: state.device?.name
+        ? `保持 ${state.device.name} 靠近手机。`
+        : '保持录音卡靠近手机，连接成功后会自动读取参数。',
+      title: '连接中',
+    };
+  }
+  return {
+    badge: '未连接',
+    hint: '打开录音卡并靠近 iPhone',
+    instruction: '请将录音卡开机，并靠近 iPhone。',
+    title: '纽曼智能录音笔',
+  };
+}
+
+function isAutoConnectX1Device(device: X1DiscoveredDevice): boolean {
+  const advertisedServices = device.advertisedServices.map((service) => service.toLowerCase());
+  if (advertisedServices.includes(X1_SERVICE_UUID)) return true;
+  const name = device.name.toLowerCase();
+  return name.includes('录音笔') || name.includes('newman') || name.includes('niuman');
+}
+
+function isX1BatteryStatus(event: X1DeviceStatusEvent): event is { kind: 'battery'; battery: number } {
+  return event.kind === 'battery' && typeof event.battery === 'number';
+}
+
+function isX1VersionStatus(event: X1DeviceStatusEvent): event is { kind: 'version'; version: string } {
+  return event.kind === 'version' && typeof event.version === 'string';
+}
+
+function isX1StorageStatus(event: X1DeviceStatusEvent): event is {
+  kind: 'storage';
+  freeBytes: number;
+  totalBytes: number;
+  usedBytes: number;
+} {
+  return event.kind === 'storage'
+    && typeof event.freeBytes === 'number'
+    && typeof event.totalBytes === 'number'
+    && typeof event.usedBytes === 'number';
+}
+
+function isX1DeviceIdentity(event: X1DeviceStatusEvent): event is X1DeviceIdentity {
+  return event.kind === 'deviceIdentity'
+    && typeof event.mac === 'string'
+    && typeof event.macHex === 'string'
+    && typeof event.appKey === 'string'
+    && typeof event.appKeyHex === 'string';
+}
+
+function formatBattery(value: number | null): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '读取中';
+  return `${Math.round(value)}%`;
+}
+
+function formatX1Storage(storage: X1StorageInfo | null): string {
+  if (!storage) return '读取中';
+  return `${formatBytes(storage.freeBytes)} 可用 / ${formatBytes(storage.totalBytes)}`;
+}
+
+function formatBytes(bytes: number | undefined): string {
+  if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit] ?? 'B'}`;
+}
+
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.bg,
@@ -394,7 +764,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     flex: 1,
-    minHeight: 224,
+    gap: 12,
+    minHeight: 184,
     padding: 12,
   },
   iphoneCard: {
@@ -407,12 +778,26 @@ const styles = StyleSheet.create({
   },
   entryMain: {
     flex: 1,
-    gap: 7,
+    gap: 10,
   },
   entryTop: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: 8,
     justifyContent: 'space-between',
+    minHeight: 30,
+  },
+  entrySourceLabel: {
+    color: colors.textPrimary,
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '900',
+    minWidth: 0,
+  },
+  entryTopActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   entryIcon: {
     alignItems: 'center',
@@ -442,13 +827,71 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     paddingHorizontal: 8,
     paddingVertical: 4,
+    textAlign: 'center',
+  },
+  entryDetailButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderColor: 'rgba(148, 163, 184, 0.38)',
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  entryDetailButtonText: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  entryBadgeSuccess: {
+    backgroundColor: colors.successSoft,
+    color: colors.success,
+  },
+  entryBadgeWarning: {
+    backgroundColor: colors.warningSoft,
+    color: colors.warning,
+  },
+  entryTopCenter: {
+    alignItems: 'center',
+    backgroundColor: colors.bg,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 29,
+    minWidth: 0,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+  },
+  entryTopCenterText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  iphoneTopCenter: {
+    borderColor: '#fecaca',
+  },
+  iphoneTopCenterText: {
+    color: colors.recordRed,
+  },
+  x1TestButton: {
+    borderColor: '#bfdbfe',
+  },
+  x1TestButtonText: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  entryTextBlock: {
+    gap: 6,
+    minHeight: 24,
   },
   entryTitle: {
     color: colors.textPrimary,
     fontSize: 18,
     fontWeight: '900',
     lineHeight: 23,
-    marginTop: 10,
+    minHeight: 46,
   },
   entryMeta: {
     color: colors.textSecondary,
@@ -460,13 +903,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 17,
-    marginTop: 2,
+    minHeight: 17,
   },
   entryPrimary: {
     alignItems: 'center',
     backgroundColor: colors.ink,
     borderRadius: radius.pill,
-    marginTop: 'auto',
     paddingVertical: 10,
   },
   entryPrimaryText: {
@@ -487,6 +929,93 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 13,
     fontWeight: '900',
+  },
+  entryInfoArea: {
+    minHeight: 94,
+  },
+  entryChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    minHeight: 58,
+  },
+  entryChip: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderColor: 'rgba(148, 163, 184, 0.42)',
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexBasis: '47%',
+    flexGrow: 1,
+    minWidth: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
+  entryChipWide: {
+    flexBasis: '100%',
+  },
+  entryChipText: {
+    color: colors.textPrimary,
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  iphoneInfoArea: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  x1ParamGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  x1Param: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderColor: 'rgba(148, 163, 184, 0.42)',
+    borderRadius: radius.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexBasis: '47%',
+    flexGrow: 1,
+    minWidth: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 6,
+  },
+  x1ParamWide: {
+    flexBasis: '100%',
+  },
+  x1ParamLabel: {
+    color: colors.textMuted,
+    fontSize: 10,
+    fontWeight: '900',
+    marginBottom: 2,
+  },
+  x1ParamValue: {
+    color: colors.textPrimary,
+    fontSize: 11,
+    fontVariant: ['tabular-nums'],
+    fontWeight: '900',
+  },
+  x1DisconnectedPanel: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderColor: '#bfdbfe',
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  x1DisconnectedTitle: {
+    color: colors.warning,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  x1DisconnectedHint: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   recoveryCard: {
     backgroundColor: colors.warningSoft,

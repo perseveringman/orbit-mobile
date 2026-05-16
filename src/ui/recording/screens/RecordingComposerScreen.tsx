@@ -80,6 +80,7 @@ import {
   updateLiveTranscriptSegments,
 } from '../../../core/recording/live-transcript-segmenter';
 import { createRecordingCapture, type LivePartialInput } from '../../../core/recording/recording-service';
+import { recordingTimestampTitle } from '../../../core/recording/title';
 import { openDb } from '../../../core/storage/db';
 import * as annotationsRepo from '../../../core/storage/recording-annotations-repo';
 import { runSyncTick } from '../../../core/sync/worker';
@@ -163,6 +164,7 @@ export function RecordingComposerScreen({
   const pageScrollYRef = useRef(0);
   const noteFocusedRef = useRef(false);
   const tabRef = useRef<ComposerTab>('mark');
+  const initialStartedAt = useMemo(() => new Date(), []);
   const [tab, setTab] = useState<ComposerTab>('mark');
   const [recording, setRecording] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -186,12 +188,12 @@ export function RecordingComposerScreen({
   const [x1RealtimeProgress, setX1RealtimeProgress] = useState<X1RealtimeProgressEvent | null>(null);
   const [language, setLanguage] = useState('auto');
   const [diarization] = useState(false);
-  const [title, setTitle] = useState(source === 'x1' ? 'X1 录音 · 现在' : '新会议 · 现在');
+  const [title, setTitle] = useState(() => recordingTimestampTitle(initialStartedAt, source));
   const [error, setError] = useState<string | null>(null);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const keyboardInsetRef = useRef(0);
-  const startedAtRef = useRef(new Date().toISOString());
-  const startedMsRef = useRef(Date.now());
+  const startedAtRef = useRef(initialStartedAt.toISOString());
+  const startedMsRef = useRef(initialStartedAt.getTime());
   const eventSeqRef = useRef(1);
   const attachmentSeqRef = useRef(1);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -229,8 +231,10 @@ export function RecordingComposerScreen({
 
     async function beginIphone(): Promise<void> {
       try {
-        startedAtRef.current = new Date().toISOString();
-        startedMsRef.current = Date.now();
+        const startedAt = new Date();
+        startedAtRef.current = startedAt.toISOString();
+        startedMsRef.current = startedAt.getTime();
+        setTitle(recordingTimestampTitle(startedAt, 'iphone'));
         waveformRef.current = [];
         setWaveformSamples([]);
         transcriptSegmentationRef.current = createLiveTranscriptSegmentationState();
@@ -517,7 +521,9 @@ export function RecordingComposerScreen({
       const started = await startRealtimeImport(realtimeFilename());
       const startedAt = normalizeIsoDate(started.startedAt) ?? new Date().toISOString();
       startedAtRef.current = startedAt;
-      startedMsRef.current = new Date(startedAt).getTime();
+      const startedDate = new Date(startedAt);
+      startedMsRef.current = startedDate.getTime();
+      setTitle(recordingTimestampTitle(startedDate, 'x1'));
       transcriptTextRef.current = '';
       partialsRef.current = [];
       partialProviderRef.current = 'x1-realtime';

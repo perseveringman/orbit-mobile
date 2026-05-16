@@ -7,9 +7,11 @@ import type {
   TranscriptSegment,
 } from '../../types/recording';
 import { isoNow } from '../../utils/time';
+import { sanitizeSemanticRecordingTitle } from '../recording/title';
 import type { DeepSeekClient, DeepSeekMessage } from './deepseek-client';
 
 export interface AiRecordingNotes {
+  semanticTitle?: string;
   outline: OutlineItem[];
   derivatives: {
     summary: DerivativePayload;
@@ -20,6 +22,7 @@ export interface AiRecordingNotes {
 }
 
 interface AiNotesJson {
+  semantic_title?: unknown;
   summary_markdown?: unknown;
   outline?: unknown;
   decisions?: unknown;
@@ -112,7 +115,8 @@ function buildNotesMessages(detail: RecordingDetail): DeepSeekMessage[] {
       content: [
         '你是 Orbit Mobile 的录音笔记结构化生成器。',
         '只根据转写文本生成，不要编造未出现的人名、时间或结论。',
-        '输出必须是 JSON 对象，字段为 summary_markdown, outline, decisions, risks, todos。',
+        '输出必须是 JSON 对象，字段为 semantic_title, summary_markdown, outline, decisions, risks, todos。',
+        'semantic_title 是 6-20 个汉字左右的语义化标题，不要使用日期、时间、iphone-YYYYMMDDHHmmss、录音卡-YYYYMMDDHHmmss、“录音”、“会议记录”这类泛称。',
         'outline 数组项：{title,start_ms}。',
         'decisions/risks/todos 数组项：{title,body,start_ms,end_ms,owner?}。',
         'summary_markdown 使用 Markdown，包含“概述”和“关键片段”。',
@@ -160,7 +164,9 @@ function coerceNotesPayload(payload: AiNotesJson, detail: RecordingDetail): AiRe
   const now = isoNow();
   const segments = detail.transcript.segments;
   const outline = coerceOutline(payload.outline, segments);
+  const semanticTitle = sanitizeSemanticRecordingTitle(asString(payload.semantic_title));
   return {
+    semanticTitle: semanticTitle ?? undefined,
     outline,
     derivatives: {
       summary: {

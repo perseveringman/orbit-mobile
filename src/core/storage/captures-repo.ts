@@ -51,6 +51,12 @@ export type SyncStatePatch = Partial<
   >
 >;
 
+export interface LocalMetadataPatch {
+  byte_size?: number;
+  content_hash?: string;
+  content_preview?: string | null;
+}
+
 export interface ListOptions {
   limit?: number;
   offset?: number;
@@ -193,6 +199,29 @@ export async function updateSyncState(
   }
   params.push(id);
 
+  await db.runAsync(`UPDATE captures SET ${assignments.join(', ')} WHERE id = ?`, params);
+}
+
+export async function updateLocalMetadata(
+  db: SQLiteDatabaseLike,
+  id: string,
+  patch: LocalMetadataPatch,
+): Promise<void> {
+  const entries = Object.entries(patch) as [keyof LocalMetadataPatch, SQLiteValue | undefined][];
+  if (entries.length === 0) {
+    throw new Error('captures.update_local_metadata.empty_patch');
+  }
+  const allowed = new Set<keyof LocalMetadataPatch>(['byte_size', 'content_hash', 'content_preview']);
+  const assignments: string[] = [];
+  const params: SQLiteValue[] = [];
+  for (const [column, value] of entries) {
+    if (!allowed.has(column)) {
+      throw new Error(`captures.update_local_metadata.invalid_column:${String(column)}`);
+    }
+    assignments.push(`${column} = ?`);
+    params.push(value ?? null);
+  }
+  params.push(id);
   await db.runAsync(`UPDATE captures SET ${assignments.join(', ')} WHERE id = ?`, params);
 }
 

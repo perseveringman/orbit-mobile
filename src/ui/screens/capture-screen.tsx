@@ -27,7 +27,11 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import type { KeyboardEvent, NativeSyntheticEvent, TextInputSelectionChangeEventData } from 'react-native';
+import type {
+  KeyboardEvent,
+  NativeSyntheticEvent,
+  TextInputSelectionChangeEventData,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { createCapture } from '../../core/capture/atomic-write';
@@ -36,6 +40,14 @@ import type { VoiceRecordingResult } from '../../core/audio/recorder';
 import type { LiveTranscriptionState } from '../../core/audio/transcription';
 import { pickFiles, sanitizeAttachmentFilename, type PickedFile } from '../../core/file/picker';
 import type { PickedImage } from '../../core/image/picker';
+import {
+  applyMarkdownHeading,
+  applyMarkdownTextToolbarAction,
+  insertMarkdownBlocksAtSelection,
+  type MarkdownEditResult,
+  type MarkdownSelection,
+  type MarkdownTextToolbarAction,
+} from '../../core/markdown/toolbar-actions';
 import { loadAppSettings, type ImageOriginalPolicy } from '../../core/settings/app-settings';
 import { openDb } from '../../core/storage/db';
 import { runSyncTick } from '../../core/sync/worker';
@@ -78,7 +90,7 @@ interface CaptureScreenProps {
   embedded?: boolean;
 }
 
-type Selection = { start: number; end: number };
+type Selection = MarkdownSelection;
 type ToolbarAction =
   | 'undo'
   | 'redo'
@@ -134,6 +146,7 @@ export function CaptureScreen({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [clipboardText, setClipboardText] = useState<string | null>(null);
+  const [editorFocused, setEditorFocused] = useState(false);
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [toolbarVisible, setToolbarVisible] = useState(false);
   const [historyCounts, setHistoryCounts] = useState({ redo: 0, undo: 0 });
@@ -151,10 +164,12 @@ export function CaptureScreen({
   useEffect(() => {
     if (!active) {
       inputRef.current?.blur();
+      setEditorFocused(false);
       setKeyboardInset(0);
       setToolbarVisible(false);
       return undefined;
     }
+    setEditorFocused(true);
     const focusHandle = setTimeout(() => inputRef.current?.focus(), 50);
     return () => clearTimeout(focusHandle);
   }, [active]);
@@ -182,6 +197,7 @@ export function CaptureScreen({
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
     const showSubscription = Keyboard.addListener(showEvent, updateKeyboardInset);
     const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setEditorFocused(false);
       setKeyboardInset(0);
       setToolbarVisible(false);
     });
@@ -391,27 +407,7 @@ export function CaptureScreen({
 
   function insertMarkdownBlocks(blocks: string[]): void {
     if (blocks.length === 0) return;
-    const current = draft.content;
-    const start = Math.max(0, Math.min(selection.start, current.length));
-    const end = Math.max(start, Math.min(selection.end, current.length));
-    const before = current.slice(0, start);
-    const after = current.slice(end);
-    const insertion = blocks.join('\n');
-    const prefix = before.trim().length === 0
-      ? ''
-      : before.endsWith('\n\n')
-        ? ''
-        : before.endsWith('\n')
-          ? '\n'
-          : '\n\n';
-    const suffix = after.trim().length === 0
-      ? ''
-      : after.startsWith('\n\n')
-        ? ''
-        : after.startsWith('\n')
-          ? '\n'
-          : '\n\n';
-    setDraftContent(`${before}${prefix}${insertion}${suffix}${after}`);
+    applyMarkdownEdit(insertMarkdownBlocksAtSelection(draft.content, selection, blocks));
   }
 
   function removeBlock(block: string): void {
@@ -446,7 +442,7 @@ export function CaptureScreen({
       return;
     }
     if (action === 'tag') {
-      insertMarkdownAtSelection('#标签');
+      applyTextToolbarEdit('tag');
       return;
     }
     if (action === 'heading') {
@@ -454,39 +450,39 @@ export function CaptureScreen({
       return;
     }
     if (action === 'bold') {
-      wrapSelection('**', '**', '加粗文字');
+      applyTextToolbarEdit('bold');
       return;
     }
     if (action === 'quote') {
-      prefixSelectedLines('> ', '引用');
+      applyTextToolbarEdit('quote');
       return;
     }
     if (action === 'italic') {
-      wrapSelection('*', '*', '斜体文字');
+      applyTextToolbarEdit('italic');
       return;
     }
     if (action === 'strikethrough') {
-      wrapSelection('~~', '~~', '删除文字');
+      applyTextToolbarEdit('strikethrough');
       return;
     }
     if (action === 'highlight') {
-      wrapSelection('==', '==', '高亮文字');
+      applyTextToolbarEdit('highlight');
       return;
     }
     if (action === 'orderedList') {
-      prefixSelectedLines((index) => `${index + 1}. `, '列表项');
+      applyTextToolbarEdit('orderedList');
       return;
     }
     if (action === 'unorderedList') {
-      prefixSelectedLines('- ', '列表项');
+      applyTextToolbarEdit('unorderedList');
       return;
     }
     if (action === 'checklist') {
-      prefixSelectedLines('- [ ] ', '待办');
+      applyTextToolbarEdit('checklist');
       return;
     }
     if (action === 'codeBlock') {
-      wrapAsCodeBlock();
+      applyTextToolbarEdit('codeBlock');
     }
   }
 
@@ -510,57 +506,36 @@ export function CaptureScreen({
   }
 
   function applyHeadingLevel(level: number): void {
-    prefixSelectedLines(`${'#'.repeat(level)} `, `H${level} 标题`);
+    applyMarkdownEdit(applyMarkdownHeading(draft.content, selection, level));
   }
 
-  function insertMarkdownAtSelection(markdown: string): void {
-    const current = draft.content;
-    const start = Math.max(0, Math.min(selection.start, current.length));
-    const end = Math.max(start, Math.min(selection.end, current.length));
-    setDraftContent(`${current.slice(0, start)}${markdown}${current.slice(end)}`);
-    setTimeout(() => inputRef.current?.focus(), 0);
+  function applyTextToolbarEdit(action: MarkdownTextToolbarAction): void {
+    applyMarkdownEdit(applyMarkdownTextToolbarAction(draft.content, selection, action));
   }
 
-  function wrapSelection(prefix: string, suffix: string, placeholder: string): void {
-    const current = draft.content;
-    const start = Math.max(0, Math.min(selection.start, current.length));
-    const end = Math.max(start, Math.min(selection.end, current.length));
-    const selected = current.slice(start, end) || placeholder;
-    setDraftContent(`${current.slice(0, start)}${prefix}${selected}${suffix}${current.slice(end)}`);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }
-
-  function prefixSelectedLines(
-    prefix: string | ((index: number) => string),
-    placeholder = '',
-  ): void {
-    const current = draft.content;
-    const start = Math.max(0, Math.min(selection.start, current.length));
-    const end = Math.max(start, Math.min(selection.end, current.length));
-    const selected = current.slice(start, end) || placeholder;
-    const lines = selected.length > 0 ? selected.split(/\r?\n/) : [''];
-    const next = lines
-      .map((line, index) => `${typeof prefix === 'function' ? prefix(index) : prefix}${line}`)
-      .join('\n');
-    setDraftContent(`${current.slice(0, start)}${next}${current.slice(end)}`);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }
-
-  function wrapAsCodeBlock(): void {
-    const current = draft.content;
-    const start = Math.max(0, Math.min(selection.start, current.length));
-    const end = Math.max(start, Math.min(selection.end, current.length));
-    const selected = current.slice(start, end);
-    const code = selected.trim().length > 0 ? selected : '代码';
-    setDraftContent(`${current.slice(0, start)}\`\`\`\n${code}\n\`\`\`${current.slice(end)}`);
-    setTimeout(() => inputRef.current?.focus(), 0);
+  function applyMarkdownEdit(edit: MarkdownEditResult): void {
+    setDraftContent(edit.content);
+    setSelection(edit.selection);
+    setEditorFocused(true);
+    setToolbarVisible(true);
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setNativeProps({ selection: edit.selection });
+    }, 0);
   }
 
   function hideKeyboardToolbar(): void {
     inputRef.current?.blur();
     Keyboard.dismiss();
+    setEditorFocused(false);
     setKeyboardInset(0);
     setToolbarVisible(false);
+  }
+
+  function focusEditor(): void {
+    setEditorFocused(true);
+    setToolbarVisible(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   return (
@@ -607,22 +582,39 @@ export function CaptureScreen({
       {message ? <Text style={styles.toast}>{message}</Text> : null}
       {error ? <Text selectable style={styles.error}>{error}</Text> : null}
 
-      <View style={[styles.editorShell, { marginBottom: toolbarVisible ? keyboardInset + insets.bottom : 0 }]}>
-        <TextInput
-          ref={inputRef}
-          autoFocus
-          blurOnSubmit={false}
-          multiline
-          onChangeText={setDraftContent}
-          onFocus={() => setToolbarVisible(true)}
-          onSelectionChange={updateSelection}
-          placeholder={'# 标题\n\n写下想法，或插入图片、文件、短录音...'}
-          placeholderTextColor="#94a3b8"
-          scrollEnabled
-          style={styles.input}
-          textAlignVertical="top"
-          value={draft.content}
-        />
+      <View style={styles.editorShell}>
+        <View style={styles.editorBody}>
+          {editorFocused ? (
+            <TextInput
+              ref={inputRef}
+              autoFocus
+              blurOnSubmit={false}
+              multiline
+              onBlur={() => {
+                setEditorFocused(false);
+              }}
+              onChangeText={setDraftContent}
+              onFocus={() => {
+                setEditorFocused(true);
+                setToolbarVisible(true);
+              }}
+              onSelectionChange={updateSelection}
+              placeholder="# 标题\n\n写下想法，或插入图片、文件、短录音..."
+              placeholderTextColor="#94a3b8"
+              scrollEnabled
+              selectionColor="#2563eb"
+              style={styles.input}
+              textAlignVertical="top"
+              value={draft.content}
+            />
+          ) : (
+            <RenderedMarkdownEditor
+              content={draft.content}
+              images={pendingImages}
+              onPress={focusEditor}
+            />
+          )}
+        </View>
 
         {pendingImages.length > 0 || pendingFiles.length > 0 || pendingVoices.length > 0 ? (
           <ScrollView
@@ -671,100 +663,378 @@ export function CaptureScreen({
           </ScrollView>
         ) : null}
 
-        {toolbarVisible ? (
-          <View style={styles.bottomBar}>
-            <View style={styles.markdownToolbarGroup}>
-              <ScrollView
-                horizontal
-                keyboardShouldPersistTaps="handled"
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.markdownToolbarContent}
-              >
-                {MARKDOWN_TOOLBAR_ACTIONS.map((action) => {
-                  if (action === 'image') {
-                    return (
-                      <MediaPicker
-                        key={action}
-                        disabled={saving}
-                        onPicked={appendImages}
-                        onError={(imageError) => {
-                          setError(errorMessage(imageError));
-                        }}
-                        variant="toolbar"
-                      />
-                    );
-                  }
-                  if (action === 'voice') {
-                    return (
-                      <VoiceButton
-                        key={action}
-                        disabled={saving}
-                        onTranscript={(state) => {
-                          setLiveTranscription(state);
-                          const activeVoiceDraft = ensureActiveVoiceDraft();
-                          setDraftContent(joinMarkdownBlock(
-                            activeVoiceDraft.base,
-                            voiceMarkdownBlock({
-                              durationLabel: '录音中',
-                              filename: activeVoiceDraft.filename,
-                              live: true,
-                              transcript: state.transcript,
-                            }),
-                          ), false);
-                        }}
-                        onRecorded={appendVoice}
-                        onError={(voiceError) => {
-                          activeVoiceDraftRef.current = null;
-                          setError(errorMessage(voiceError));
-                        }}
-                        variant="toolbar"
-                      />
-                    );
-                  }
-                  const disabled = saving
-                    || (action === 'undo' && historyCounts.undo === 0)
-                    || (action === 'redo' && historyCounts.redo === 0);
+      </View>
+
+      {toolbarVisible ? (
+        <View style={[styles.bottomBar, { marginBottom: keyboardInset + insets.bottom }]}>
+          <View style={styles.markdownToolbarGroup}>
+            <ScrollView
+              horizontal
+              keyboardShouldPersistTaps="handled"
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.markdownToolbarContent}
+            >
+              {MARKDOWN_TOOLBAR_ACTIONS.map((action) => {
+                if (action === 'image') {
                   return (
-                    <MarkdownToolbarButton
+                    <MediaPicker
                       key={action}
-                      action={action}
-                      disabled={disabled}
-                      onPress={() => applyToolbarAction(action)}
+                      disabled={saving}
+                      onPicked={appendImages}
+                      onError={(imageError) => {
+                        setError(errorMessage(imageError));
+                      }}
+                      variant="toolbar"
                     />
                   );
-                })}
-              </ScrollView>
-            </View>
-            <Pressable
-              accessibilityLabel="保存"
-              accessibilityRole="button"
-              disabled={saving || !canSave}
-              onPress={() => void save()}
-              style={({ pressed }) => [
-                styles.sendDockButton,
-                (saving || !canSave) && styles.sendDockButtonDisabled,
-                pressed && canSave && !saving && styles.iconButtonPressed,
-              ]}
-            >
-              {saving ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <ComposerIcon name="send" color="#ffffff" size={23} />
-              )}
-            </Pressable>
-            <Pressable
-              accessibilityLabel="收起键盘"
-              accessibilityRole="button"
-              onPress={hideKeyboardToolbar}
-              style={({ pressed }) => [styles.keyboardDismissButton, pressed && styles.iconButtonPressed]}
-            >
-              <ComposerIcon name="keyboardHide" color="#262626" size={25} />
-            </Pressable>
+                }
+                if (action === 'voice') {
+                  return (
+                    <VoiceButton
+                      key={action}
+                      disabled={saving}
+                      onTranscript={(state) => {
+                        setLiveTranscription(state);
+                        const activeVoiceDraft = ensureActiveVoiceDraft();
+                        setDraftContent(joinMarkdownBlock(
+                          activeVoiceDraft.base,
+                          voiceMarkdownBlock({
+                            durationLabel: '录音中',
+                            filename: activeVoiceDraft.filename,
+                            live: true,
+                            transcript: state.transcript,
+                          }),
+                        ), false);
+                      }}
+                      onRecorded={appendVoice}
+                      onError={(voiceError) => {
+                        activeVoiceDraftRef.current = null;
+                        setError(errorMessage(voiceError));
+                      }}
+                      variant="toolbar"
+                    />
+                  );
+                }
+                const disabled = saving
+                  || (action === 'undo' && historyCounts.undo === 0)
+                  || (action === 'redo' && historyCounts.redo === 0);
+                return (
+                  <MarkdownToolbarButton
+                    key={action}
+                    action={action}
+                    disabled={disabled}
+                    onPress={() => applyToolbarAction(action)}
+                  />
+                );
+              })}
+            </ScrollView>
           </View>
-        ) : null}
+          <Pressable
+            accessibilityLabel="保存"
+            accessibilityRole="button"
+            disabled={saving || !canSave}
+            onPress={() => void save()}
+            style={({ pressed }) => [
+              styles.sendDockButton,
+              (saving || !canSave) && styles.sendDockButtonDisabled,
+              pressed && canSave && !saving && styles.iconButtonPressed,
+            ]}
+          >
+            {saving ? (
+              <ActivityIndicator color="#ffffff" size="small" />
+            ) : (
+              <ComposerIcon name="send" color="#ffffff" size={20} />
+            )}
+          </Pressable>
+          <Pressable
+            accessibilityLabel="收起键盘"
+            accessibilityRole="button"
+            onPress={hideKeyboardToolbar}
+            style={({ pressed }) => [styles.keyboardDismissButton, pressed && styles.iconButtonPressed]}
+          >
+            <ComposerIcon name="keyboardHide" color="#262626" size={21} />
+          </Pressable>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function RenderedMarkdownEditor({
+  content,
+  images,
+  onPress,
+}: {
+  content: string;
+  images: PendingMarkdownImage[];
+  onPress: () => void;
+}): React.ReactElement {
+  const trimmed = content.trim();
+  return (
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      onTouchEnd={onPress}
+      style={styles.renderedMarkdownViewport}
+      contentContainerStyle={styles.renderedMarkdownContent}
+    >
+      {trimmed.length === 0 ? (
+        <View>
+          <Text style={[styles.renderedHeading1, styles.renderedPlaceholder]}>标题</Text>
+          <Text style={[styles.renderedParagraph, styles.renderedPlaceholder]}>
+            写下想法，或插入图片、文件、短录音...
+          </Text>
+        </View>
+      ) : (
+        renderMarkdownBlocks(content, images)
+      )}
+    </ScrollView>
+  );
+}
+
+function renderMarkdownBlocks(
+  content: string,
+  images: PendingMarkdownImage[],
+): React.ReactNode[] {
+  const lines = content.split(/\r?\n/);
+  const blocks: React.ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index] ?? '';
+    const trimmed = line.trim();
+    const key = `md-${index}`;
+
+    if (trimmed.length === 0) {
+      blocks.push(<View key={key} style={styles.renderedSpacer} />);
+      index += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith('```')) {
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !(lines[index] ?? '').trim().startsWith('```')) {
+        codeLines.push(lines[index] ?? '');
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      blocks.push(
+        <View key={key} style={styles.renderedCodeBlock}>
+          <Text style={styles.renderedCodeText}>{codeLines.join('\n') || '代码'}</Text>
+        </View>,
+      );
+      continue;
+    }
+
+    const imageAttachment = /^!\[([^\]]*)\]\(attachment:\/\/([^)]+)\)$/.exec(trimmed);
+    if (imageAttachment) {
+      blocks.push(
+        <RenderedImageAttachment
+          key={key}
+          filename={imageAttachment[2] ?? ''}
+          image={images.find((item) => item.filename === imageAttachment[2])}
+          label={imageAttachment[1] || imageAttachment[2] || '图片'}
+        />,
+      );
+      index += 1;
+      continue;
+    }
+
+    const fileAttachment = /^\[([^\]]+)\]\(attachment:\/\/([^)]+)\)$/.exec(trimmed);
+    if (fileAttachment) {
+      const label = fileAttachment[1] ?? '附件';
+      const filename = fileAttachment[2] ?? '';
+      blocks.push(
+        <RenderedAttachment key={key} filename={filename} label={label} />,
+      );
+      index += 1;
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      const level = Math.min(6, heading[1]?.length ?? 1);
+      blocks.push(
+        <Text key={key} style={headingStyle(level)}>
+          {renderInlineMarkdown(heading[2] ?? '', `${key}-h`)}
+        </Text>,
+      );
+      index += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith('>')) {
+      const quoteLines: string[] = [];
+      while (index < lines.length && (lines[index] ?? '').trim().startsWith('>')) {
+        quoteLines.push((lines[index] ?? '').replace(/^\s*>\s?/, ''));
+        index += 1;
+      }
+      blocks.push(
+        <View key={key} style={styles.renderedQuoteBlock}>
+          {quoteLines.map((quoteLine, quoteIndex) => (
+            <Text key={`${key}-q-${quoteIndex}`} style={styles.renderedQuoteText}>
+              {renderInlineMarkdown(quoteLine, `${key}-q-${quoteIndex}`)}
+            </Text>
+          ))}
+        </View>,
+      );
+      continue;
+    }
+
+    const checklist = /^[-*]\s+\[([ xX])\]\s+(.+)$/.exec(trimmed);
+    if (checklist) {
+      blocks.push(
+        <View key={key} style={styles.renderedListRow}>
+          <Text style={styles.renderedCheckbox}>{checklist[1]?.trim().length ? '☑' : '☐'}</Text>
+          <Text style={styles.renderedListText}>
+            {renderInlineMarkdown(checklist[2] ?? '', `${key}-todo`)}
+          </Text>
+        </View>,
+      );
+      index += 1;
+      continue;
+    }
+
+    const ordered = /^(\d+)\.\s+(.+)$/.exec(trimmed);
+    if (ordered) {
+      blocks.push(
+        <View key={key} style={styles.renderedListRow}>
+          <Text style={styles.renderedListMarker}>{ordered[1]}.</Text>
+          <Text style={styles.renderedListText}>
+            {renderInlineMarkdown(ordered[2] ?? '', `${key}-ol`)}
+          </Text>
+        </View>,
+      );
+      index += 1;
+      continue;
+    }
+
+    const unordered = /^[-*]\s+(.+)$/.exec(trimmed);
+    if (unordered) {
+      blocks.push(
+        <View key={key} style={styles.renderedListRow}>
+          <Text style={styles.renderedListMarker}>•</Text>
+          <Text style={styles.renderedListText}>
+            {renderInlineMarkdown(unordered[1] ?? '', `${key}-ul`)}
+          </Text>
+        </View>,
+      );
+      index += 1;
+      continue;
+    }
+
+    blocks.push(
+      <Text key={key} style={styles.renderedParagraph}>
+        {renderInlineMarkdown(line, `${key}-p`)}
+      </Text>,
+    );
+    index += 1;
+  }
+
+  return blocks;
+}
+
+function RenderedImageAttachment({
+  filename,
+  image,
+  label,
+}: {
+  filename: string;
+  image?: PendingMarkdownImage;
+  label: string;
+}): React.ReactElement {
+  return (
+    <View style={styles.renderedImageBlock}>
+      {image ? (
+        <Image source={{ uri: image.uri }} style={styles.renderedImage} />
+      ) : (
+        <View style={styles.renderedImagePlaceholder}>
+          <ComposerIcon name="image" color="#64748b" size={22} />
+        </View>
+      )}
+      <Text numberOfLines={1} style={styles.renderedAttachmentLabel}>
+        {label || filename}
+      </Text>
+    </View>
+  );
+}
+
+function RenderedAttachment({
+  filename,
+  label,
+}: {
+  filename: string;
+  label: string;
+}): React.ReactElement {
+  const icon = /\.(m4a|mp3|caf|wav)$/i.test(filename) ? 'mic' : 'file';
+  return (
+    <View style={styles.renderedAttachmentBlock}>
+      <ComposerIcon name={icon} color="#2563eb" size={18} />
+      <View style={styles.renderedAttachmentText}>
+        <Text numberOfLines={1} style={styles.renderedAttachmentTitle}>{label}</Text>
+        <Text numberOfLines={1} style={styles.renderedAttachmentMeta}>{filename}</Text>
       </View>
     </View>
   );
+}
+
+function renderInlineMarkdown(text: string, keyPrefix: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const pattern = /(\*\*[^*\n]+\*\*|~~[^~\n]+~~|==[^=\n]+==|\*[^*\n]+\*|#[^\s#]+)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    const key = `${keyPrefix}-${match.index}`;
+    if (token.startsWith('**')) {
+      nodes.push(
+        <Text key={key} style={styles.inlineBold}>{token.slice(2, -2)}</Text>,
+      );
+    } else if (token.startsWith('~~')) {
+      nodes.push(
+        <Text key={key} style={styles.inlineStrike}>{token.slice(2, -2)}</Text>,
+      );
+    } else if (token.startsWith('==')) {
+      nodes.push(
+        <Text key={key} style={styles.inlineHighlight}>{token.slice(2, -2)}</Text>,
+      );
+    } else if (token.startsWith('*')) {
+      nodes.push(
+        <Text key={key} style={styles.inlineItalic}>{token.slice(1, -1)}</Text>,
+      );
+    } else {
+      nodes.push(
+        <Text key={key} style={styles.inlineTag}>{token}</Text>,
+      );
+    }
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return nodes.length > 0 ? nodes : [text];
+}
+
+function headingStyle(level: number): object {
+  switch (level) {
+    case 1:
+      return styles.renderedHeading1;
+    case 2:
+      return styles.renderedHeading2;
+    case 3:
+      return styles.renderedHeading3;
+    case 4:
+      return styles.renderedHeading4;
+    case 5:
+      return styles.renderedHeading5;
+    default:
+      return styles.renderedHeading6;
+  }
 }
 
 function AttachmentPill({
@@ -811,7 +1081,7 @@ function MarkdownToolbarButton({
         pressed && !disabled && styles.iconButtonPressed,
       ]}
     >
-      <ComposerIcon name={toolbarIconName(action)} color="#262626" size={25} />
+      <ComposerIcon name={toolbarIconName(action)} color="#262626" size={21} />
     </Pressable>
   );
 }
@@ -1140,6 +1410,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
     overflow: 'hidden',
   },
+  editorBody: {
+    flex: 1,
+    minHeight: 260,
+    overflow: 'hidden',
+    position: 'relative',
+  },
   input: {
     color: '#0f172a',
     flex: 1,
@@ -1149,6 +1425,193 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+  renderedMarkdownViewport: {
+    flex: 1,
+  },
+  renderedMarkdownContent: {
+    paddingBottom: 18,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  renderedSpacer: {
+    height: 10,
+  },
+  renderedPlaceholder: {
+    color: '#94a3b8',
+  },
+  renderedParagraph: {
+    color: '#0f172a',
+    fontSize: 17,
+    lineHeight: 25,
+    marginBottom: 6,
+  },
+  renderedHeading1: {
+    color: '#0f172a',
+    fontSize: 27,
+    fontWeight: '900',
+    lineHeight: 34,
+    marginBottom: 10,
+  },
+  renderedHeading2: {
+    color: '#0f172a',
+    fontSize: 24,
+    fontWeight: '900',
+    lineHeight: 31,
+    marginBottom: 9,
+  },
+  renderedHeading3: {
+    color: '#0f172a',
+    fontSize: 21,
+    fontWeight: '800',
+    lineHeight: 28,
+    marginBottom: 8,
+  },
+  renderedHeading4: {
+    color: '#0f172a',
+    fontSize: 19,
+    fontWeight: '800',
+    lineHeight: 26,
+    marginBottom: 7,
+  },
+  renderedHeading5: {
+    color: '#0f172a',
+    fontSize: 17,
+    fontWeight: '800',
+    lineHeight: 24,
+    marginBottom: 6,
+  },
+  renderedHeading6: {
+    color: '#334155',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0,
+    lineHeight: 23,
+    marginBottom: 6,
+  },
+  renderedQuoteBlock: {
+    borderLeftColor: '#f97316',
+    borderLeftWidth: 3,
+    marginBottom: 8,
+    paddingLeft: 10,
+  },
+  renderedQuoteText: {
+    color: '#475569',
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 3,
+  },
+  renderedCodeBlock: {
+    backgroundColor: '#f1f5f9',
+    borderColor: '#e2e8f0',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginBottom: 9,
+    padding: 10,
+  },
+  renderedCodeText: {
+    color: '#0f172a',
+    fontFamily: Platform.select({ ios: 'Menlo', default: undefined }),
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  renderedListRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 5,
+  },
+  renderedListMarker: {
+    color: '#64748b',
+    fontSize: 16,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 24,
+    minWidth: 24,
+    textAlign: 'right',
+  },
+  renderedCheckbox: {
+    color: '#2563eb',
+    fontFamily: Platform.select({ ios: 'Menlo', default: undefined }),
+    fontSize: 15,
+    lineHeight: 24,
+    minWidth: 30,
+  },
+  renderedListText: {
+    color: '#0f172a',
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 24,
+  },
+  renderedAttachmentBlock: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#eff6ff',
+    borderColor: '#bfdbfe',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 9,
+    marginBottom: 9,
+    maxWidth: '94%',
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+  },
+  renderedAttachmentText: {
+    minWidth: 100,
+  },
+  renderedAttachmentTitle: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  renderedAttachmentMeta: {
+    color: '#64748b',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  renderedAttachmentLabel: {
+    color: '#475569',
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  renderedImageBlock: {
+    alignSelf: 'flex-start',
+    marginBottom: 10,
+    maxWidth: '100%',
+  },
+  renderedImage: {
+    backgroundColor: '#e2e8f0',
+    borderRadius: 8,
+    height: 128,
+    width: 172,
+  },
+  renderedImagePlaceholder: {
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    borderColor: '#cbd5e1',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 84,
+    justifyContent: 'center',
+    width: 132,
+  },
+  inlineBold: {
+    fontWeight: '900',
+  },
+  inlineItalic: {
+    fontStyle: 'italic',
+  },
+  inlineStrike: {
+    textDecorationLine: 'line-through',
+  },
+  inlineHighlight: {
+    backgroundColor: '#fef08a',
+    borderRadius: 4,
+  },
+  inlineTag: {
+    color: '#2563eb',
+    fontWeight: '800',
   },
   attachmentRail: {
     flexGrow: 0,
@@ -1224,42 +1687,44 @@ const styles = StyleSheet.create({
   },
   bottomBar: {
     alignItems: 'center',
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
     flexDirection: 'row',
-    gap: 10,
-    minHeight: 68,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    gap: 8,
+    marginHorizontal: -16,
+    minHeight: 52,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
   markdownToolbarGroup: {
     backgroundColor: '#ffffff',
     borderColor: '#e5e7eb',
-    borderRadius: 25,
+    borderRadius: 21,
     borderWidth: StyleSheet.hairlineWidth,
     flex: 1,
-    height: 52,
+    height: 42,
     justifyContent: 'center',
     overflow: 'hidden',
   },
   markdownToolbarContent: {
     alignItems: 'center',
-    gap: 2,
-    paddingHorizontal: 8,
+    gap: 0,
+    paddingHorizontal: 9,
   },
   toolbarIconButton: {
     alignItems: 'center',
-    borderRadius: 19,
-    height: 42,
+    borderRadius: 18,
+    height: 36,
     justifyContent: 'center',
-    width: 42,
+    width: 36,
   },
   sendDockButton: {
     alignItems: 'center',
     backgroundColor: '#111827',
-    borderRadius: 25,
-    height: 52,
+    borderRadius: 21,
+    flexShrink: 0,
+    height: 42,
     justifyContent: 'center',
-    width: 52,
+    width: 42,
   },
   sendDockButtonDisabled: {
     opacity: 0.28,
@@ -1268,11 +1733,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#ffffff',
     borderColor: '#e5e7eb',
-    borderRadius: 25,
+    borderRadius: 21,
     borderWidth: StyleSheet.hairlineWidth,
-    height: 52,
+    flexShrink: 0,
+    height: 42,
     justifyContent: 'center',
-    width: 52,
+    width: 42,
   },
   iconButtonDisabled: {
     opacity: 0.28,

@@ -73,6 +73,10 @@ export async function get(db: SQLiteDatabaseLike, id: string): Promise<Recording
   return db.getFirstAsync<RecordingRow>(`SELECT * FROM recordings WHERE id = ?`, [id]);
 }
 
+export async function updateTitle(db: SQLiteDatabaseLike, id: string, title: string): Promise<void> {
+  await db.runAsync(`UPDATE recordings SET title = ? WHERE id = ?`, [title, id]);
+}
+
 export async function list(db: SQLiteDatabaseLike, limit = 100): Promise<RecordingRow[]> {
   return db.getAllAsync<RecordingRow>(
     `SELECT recordings.*
