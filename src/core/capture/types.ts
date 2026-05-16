@@ -10,6 +10,7 @@
  */
 
 import type { CaptureKind } from '../../types/capture';
+import type { ShareContext } from '../share/platform';
 
 export type AttachmentType = 'audio' | 'image' | 'file' | 'transcript' | 'transcript-partial' | 'derivative';
 
@@ -87,7 +88,7 @@ export interface CaptureManifest {
   derivatives?: ManifestDerivativeRef[];
   context: {
     clipboard_hint: string | null;
-    share_context: Record<string, unknown> | null;
+    share_context: ShareContext | Record<string, unknown> | null;
     location: Record<string, unknown> | null;
     network: string | null;
     battery: number | null;
@@ -112,7 +113,7 @@ export interface BuildManifestInput {
   recording?: ManifestRecordingInfo;
   derivatives?: ManifestDerivativeRef[];
   clipboardHint?: string | null;
-  shareContext?: Record<string, unknown> | null;
+  shareContext?: ShareContext | Record<string, unknown> | null;
   inputStartedAt?: string | null;
   inputFinishedAt: string;
 }
@@ -129,4 +130,6 @@ export interface CreateCaptureInput extends CreateTextCaptureInput {
   attachments?: CaptureAttachment[];
   recording?: ManifestRecordingInfo;
   derivatives?: ManifestDerivativeRef[];
+  shareContext?: ShareContext | Record<string, unknown> | null;
+  clipboardHint?: string | null;
 }

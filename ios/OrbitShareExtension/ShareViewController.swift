@@ -155,10 +155,88 @@ final class ShareViewController: UIViewController {
       "id": id,
       "content": textView.text ?? "",
       "url": sharedURL ?? NSNull(),
+      "title": sharedTitle ?? NSNull(),
+      "share_context": buildShareContext(text: textView.text ?? ""),
       "attachments": attachments
     ]
     let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
     try data.write(to: shareDir.appendingPathComponent("payload.json"), options: .atomic)
     try Data().write(to: shareDir.appendingPathComponent(".complete"), options: .atomic)
+  }
+
+  private func buildShareContext(text: String) -> [String: Any] {
+    let platform = detectSharePlatform(urlString: sharedURL, text: text)
+    return [
+      "capture_method": "share_extension",
+      "source_platform": platform,
+      "parser_hint": parserHint(for: platform),
+      "source_url": sharedURL ?? NSNull(),
+      "canonical_url": canonicalShareURL(urlString: sharedURL, platform: platform) ?? NSNull(),
+      "raw_share_text": text.isEmpty ? NSNull() : text,
+      "source_title": sharedTitle ?? NSNull(),
+      "origin_app": NSNull(),
+      "enrichment_state": "pending"
+    ]
+  }
+
+  private func detectSharePlatform(urlString: String?, text: String) -> String {
+    let candidate = urlString ?? firstURL(in: text)
+    guard
+      let candidate,
+      let components = URLComponents(string: candidate),
+      let host = components.host?.lowercased()
+    else {
+      return "unknown"
+    }
+    if host == "mp.weixin.qq.com" {
+      return "wechat_article"
+    }
+    if host.hasSuffix("xiaohongshu.com") || host == "xhslink.com" {
+      return "xiaohongshu"
+    }
+    if host == "x.com" || host.hasSuffix(".x.com") || host == "twitter.com" || host.hasSuffix(".twitter.com") {
+      return "x"
+    }
+    return "web"
+  }
+
+  private func parserHint(for platform: String) -> String {
+    switch platform {
+    case "wechat_article":
+      return "wechat_article"
+    case "xiaohongshu":
+      return "xiaohongshu_note"
+    case "x":
+      return "x_post"
+    default:
+      return "generic_url"
+    }
+  }
+
+  private func canonicalShareURL(urlString: String?, platform: String) -> String? {
+    guard let urlString, var components = URLComponents(string: urlString) else {
+      return urlString
+    }
+    components.fragment = nil
+    if platform == "x" {
+      let parts = components.path.split(separator: "/").map(String.init)
+      if parts.count >= 3, parts[1].lowercased().hasPrefix("status") {
+        components.scheme = "https"
+        components.host = "x.com"
+        components.path = "/\(parts[0])/status/\(parts[2])"
+        components.query = nil
+      } else if components.host?.contains("twitter.com") == true {
+        components.host = "x.com"
+      }
+    }
+    return components.string
+  }
+
+  private func firstURL(in text: String) -> String? {
+    guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+      return nil
+    }
+    let range = NSRange(text.startIndex..<text.endIndex, in: text)
+    return detector.firstMatch(in: text, options: [], range: range)?.url?.absoluteString
   }
 }

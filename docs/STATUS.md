@@ -60,6 +60,7 @@ TestFlight 前优先验收：
 - `sync_events.gc({ keepPerCapture })` 已实现窗口函数裁剪；全局同步状态改为 `useSyncStatus()` 聚合并 5s 刷新。
 - 详情页现在对 `failed` / `conflicted` capture 提供手动“重新同步”，会把状态重置为 `pending` 并立即跑一次 SyncWorker；设置页提供 iCloud 状态、sync state 计数、手动同步、手动自愈和“保留原图”开关。
 - M7 已新增 `OrbitShareExtension` target，支持 text/url/image 分享写入 App Group `share-inbox/`；2026-05-14 起主 app 导入是逐条容错、幂等的，失败条目会带 `.failed.json` 移入 `share-inbox-failed/`，URL 分享会尝试通过 `LinkPresentation` 补标题。
+- 2026-05-16 Share Extension / share inbox 新增平台感知 `context.share_context`：微信文章（`mp.weixin.qq.com`）、小红书（`xiaohongshu.com` / `xhslink.com`）和 X/Twitter（`x.com` / `twitter.com`）会写入 `source_platform`、`parser_hint`、原始 URL、canonical URL、分享文本和标题；手机端只做本地原子保存与同步，Mac Orbit inbound 再做 best-effort 解析，解析失败不影响 ACK。
 - M8 已新增 `OrbitWidgets` target，支持主屏 small/medium 和 iOS 16+ lock screen accessory widget；2026-05-16 起主屏 small/medium 改为三入口快捷按钮：笔记 → `orbit-mobile://`，iPhone 录音 → `orbit-mobile://recording/new`，X1 录音 → `orbit-mobile://recording/x1-session`。Widget 只负责打开主 app，不写 SQLite / iCloud。
 - M9 长录音 UI 已从静态 mock 改为真实 Layer 2 数据：`recordings` 表 + `recording_annotations` 表 + `kind='recording'` capture + `audio.m4a` / `waveform.json` / `partial-transcript.ndjson` / `final-transcript.json` / 本地派生物附件。Recording Composer 以原始录音为最高优先级；iOS 录音与 Apple Speech 实时转写共用同一条 native 麦克风管线，实时波形来自同一麦克风 buffer 的 RMS/peak 采样，避免 `expo-av` 与 Speech 并发抢占音频会话；录音中页面已改为实时大纲和真实来源状态，未配置云端模型时使用透明的 `local-live-transcript` / `local-heuristic` 派生，不引入服务端。
 - `orbit-speech-recognition` 已新增 recoverable sidecar：录音开始写 `orbit-recording-*.json`，正常保存/取消会清理；app 被杀后下次进入录音列表会扫描残留 CAF/M4A 并提示保存或丢弃，保存继续走本地原子 capture。
@@ -222,6 +223,7 @@ TestFlight 前优先验收：
 - [ADR-004](./decisions/ADR-004-user-key-deepseek-ai-notes.md) — 2026-05-15 · **accepted** · 用户自持 Key 直连 DeepSeek V4 Flash 生成录音 AI 笔记
 - [ADR-005](./decisions/ADR-005-mobile-captures-materialize-as-notes.md) — 2026-05-15 · **accepted** · mobile capture 直接 materialize 为 Notes + Timeline，AI 派生默认进 Workbench
 - [ADR-006](./decisions/ADR-006-two-mode-capture-interaction.md) — 2026-05-16 · **accepted** · 移动端拆成 Markdown Capture 与 Recording Session 两种 capture 模式
+- [ADR-007](./decisions/ADR-007-platform-aware-share-context.md) — 2026-05-16 · **accepted** · 小红书、微信文章、X 分享只在手机端标准化上下文，解析后置到 Mac Orbit
 
 ## 已有 Plans
 

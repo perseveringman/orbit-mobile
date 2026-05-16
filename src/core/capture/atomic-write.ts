@@ -143,6 +143,8 @@ export async function createCapture(
     attachments,
     recording: input.recording,
     derivatives: input.derivatives,
+    clipboardHint: input.clipboardHint,
+    shareContext: input.shareContext,
     inputStartedAt: input.inputStartedAt ?? null,
     inputFinishedAt,
   });

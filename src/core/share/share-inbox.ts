@@ -1,5 +1,6 @@
 import { createCapture } from '../capture/atomic-write';
 import type { CaptureAttachment } from '../capture/types';
+import { buildShareContext, type ShareContext } from './platform';
 import * as capturesRepo from '../storage/captures-repo';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
 import { appGroupContainerPath, expoFileSystem, joinPath, type FileSystemAdapter } from '../../utils/fs';
@@ -12,6 +13,8 @@ interface ShareInboxPayload {
   id: string;
   content: string;
   url: string | null;
+  title?: string | null;
+  share_context?: ShareContext | null;
   attachments: Array<{
     type: 'image' | 'file';
     filename: string;
@@ -50,6 +53,14 @@ export async function importShareInbox(options: ImportShareInboxOptions): Promis
         continue;
       }
       const content = [payload.content.trim(), payload.url].filter(Boolean).join('\n\n');
+      const shareContext =
+        payload.share_context ??
+        buildShareContext({
+          captureMethod: 'share_extension',
+          url: payload.url,
+          text: payload.content,
+          title: payload.title ?? null,
+        });
       const attachments = payload.attachments.map<CaptureAttachment>((attachment) => ({
         type: attachment.type === 'image' ? 'image' : 'file',
         filename: attachment.filename,
@@ -61,6 +72,7 @@ export async function importShareInbox(options: ImportShareInboxOptions): Promis
           kind: attachments.length > 0 && content.length > 0 ? 'mixed' : 'share',
           content,
           attachments,
+          shareContext,
         },
         {
           db: options.db,

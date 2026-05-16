@@ -264,6 +264,34 @@ CREATE TABLE recordings (
 | `context` | - | 弱上下文（可选） |
 | `local_timestamps` | - | 用户行为分析用，可选 |
 
+### `context.share_context`
+
+从 Share Extension、剪贴板或手动 URL 捕获进入的外部内容，可以在 `context.share_context` 写入平台上下文。手机端只负责识别来源和保留原始材料，不在保存路径上做网络解析；Mac 端按该上下文异步解析。
+
+```json
+{
+  "capture_method": "share_extension",
+  "source_platform": "wechat_article",
+  "parser_hint": "wechat_article",
+  "source_url": "https://mp.weixin.qq.com/s/abc123",
+  "canonical_url": "https://mp.weixin.qq.com/s/abc123",
+  "raw_share_text": "用户分享时系统给到的原始文本",
+  "source_title": "分享标题（如果 iOS LinkPresentation 可取到）",
+  "origin_app": null,
+  "enrichment_state": "pending"
+}
+```
+
+`source_platform` 目前取值：
+
+| 值 | 含义 | Mac 端预期解析 |
+|---|---|---|
+| `wechat_article` | 微信公众号文章，通常为 `mp.weixin.qq.com` | 提取公众号文章正文 |
+| `xiaohongshu` | 小红书笔记或短链 | 尝试提取页面 metadata/正文；失败时保留 URL、分享文本、截图/图片 |
+| `x` | X/Twitter post | 通过公开 oEmbed/页面信息提取 post 文本 |
+| `web` | 普通网页 | 通用网页 metadata/readability |
+| `unknown` | 未识别来源 | 不解析，仅保留原始 capture |
+
 ### kind 取值
 
 | kind | 含义 |

@@ -94,6 +94,7 @@ source:
 Note body policy:
 
 - Include original user content.
+- If `context.share_context` identifies `wechat_article`, `xiaohongshu`, or `x`, desktop may run a best-effort source enrichment parser and include a `## Source` section plus a parsed artifact link. Parser failure must not fail mobile ingest or ACK.
 - Include transcript excerpt only when a transcript artifact has usable text.
 - Include links to human-facing source attachments such as compressed display images, audio, and regular files.
 - Copy original image source files such as `original-photo-1.heic` for provenance, but do not expose them in the Note body by default.
