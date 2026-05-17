@@ -28,6 +28,7 @@ import {
   sendCheckTime,
   sendBindDevice,
   sendUnbindDevice,
+  setFrameDebugEnabled,
   setSetting,
   startRealtimeImport,
   startRealtimeRecord,
@@ -80,7 +81,12 @@ interface RealtimeLogEntry {
 
 export function X1RecorderImportScreen(): React.ReactElement {
   const router = useRouter();
-  const params = useLocalSearchParams<{ autoRealtime?: string; autoRealtimeCapture?: string }>();
+  const params = useLocalSearchParams<{
+    autoImportFirst?: string;
+    autoImportIndex?: string;
+    autoRealtime?: string;
+    autoRealtimeCapture?: string;
+  }>();
   const [devices, setDevices] = useState<X1DiscoveredDevice[]>([]);
   const [connection, setConnection] = useState<X1ConnectionStateEvent>({
     bluetoothState: 'unknown',
@@ -108,13 +114,17 @@ export function X1RecorderImportScreen(): React.ReactElement {
   const autoConnectAttempted = useRef(false);
   const autoRealtimeStarted = useRef(false);
   const autoRealtimeCaptureStarted = useRef(false);
+  const autoImportStarted = useRef(false);
   const realtimeLogSeq = useRef(0);
   const realtimeStartedAt = useRef<number | null>(null);
   const liveTranscriptRef = useRef('');
   const livePartialsRef = useRef<LivePartialInput[]>([]);
   const autoRealtime = params.autoRealtime === '1';
   const autoRealtimeCapture = params.autoRealtimeCapture === '1';
-  const shouldAutoConnect = autoRealtime || autoRealtimeCapture;
+  const autoImportFirst = params.autoImportFirst === '1';
+  const autoImportIndex = Number(params.autoImportIndex ?? '0');
+  const shouldAutoConnect = autoRealtime || autoRealtimeCapture || autoImportFirst;
+  const frameDebugEnabled = !autoImportFirst;
   const sortedDevices = useMemo(
     () => [...devices].sort((a, b) => Number(b.isLikelyX1) - Number(a.isLikelyX1) || (b.rssi ?? -999) - (a.rssi ?? -999)),
     [devices],
@@ -125,6 +135,8 @@ export function X1RecorderImportScreen(): React.ReactElement {
       setError('X1 蓝牙导入当前只实现了 iOS Development Build。');
       return;
     }
+
+    void setFrameDebugEnabled(frameDebugEnabled).catch(() => undefined);
 
     const subscriptions = [
       addScanResultListener((device) => {
@@ -149,7 +161,7 @@ export function X1RecorderImportScreen(): React.ReactElement {
         setConnection(state);
       }),
       addImportProgressListener((event) => {
-        debugX1('import-progress', event);
+        if (!autoImportFirst) debugX1('import-progress', event);
         setProgress(event);
       }),
       addRealtimeProgressListener((event) => {
@@ -210,6 +222,7 @@ export function X1RecorderImportScreen(): React.ReactElement {
       subscriptions.forEach((subscription) => subscription.remove());
       void stopScan().catch(() => undefined);
       void stopSpeechRecognition().catch(() => undefined);
+      void setFrameDebugEnabled(false).catch(() => undefined);
       if (realtimeStartedAt.current !== null) {
         void cancelRealtimeImport().catch(() => undefined);
       }
@@ -256,6 +269,18 @@ export function X1RecorderImportScreen(): React.ReactElement {
       await stopRealtimeCapture();
     });
   }, [autoRealtimeCapture, busy, connection.connectionState, connection.device?.id]);
+
+  useEffect(() => {
+    if (!autoImportFirst || connection.connectionState !== 'connected' || !connection.device?.id) return;
+    if (busy || files.length === 0) return;
+    if (autoImportStarted.current) return;
+    autoImportStarted.current = true;
+
+    const safeIndex = Number.isFinite(autoImportIndex) ? Math.max(0, Math.floor(autoImportIndex)) : 0;
+    const file = files[safeIndex] ?? files[0];
+    if (!file) return;
+    void run(`auto-import-first-${file.name}`, () => importFile(file));
+  }, [autoImportFirst, autoImportIndex, busy, connection.connectionState, connection.device?.id, files]);
 
   async function run(label: string, action: () => Promise<void>): Promise<void> {
     if (busy) return;

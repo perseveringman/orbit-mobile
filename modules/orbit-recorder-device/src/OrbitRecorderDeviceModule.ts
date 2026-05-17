@@ -33,6 +33,7 @@ export interface OrbitRecorderDeviceNativeModule {
   requestAudioFileTotal(): Promise<number>;
   requestAudioList(start: number, count: number): Promise<X1AudioFile[]>;
   importAudio(name: string, expectedSize: number, durationMs: number, offset: number): Promise<X1ImportResult>;
+  setFrameDebugEnabled(enabled: boolean): Promise<void>;
   pauseImportTransfer(paused: boolean): Promise<X1CommandAck>;
   stopImport(): Promise<void>;
   deleteAudioFiles(names: string[]): Promise<X1DeleteAudioResult>;

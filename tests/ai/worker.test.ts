@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { setDeepSeekApiKey, setVolcengineAsrApiKey } from '@/core/ai/api-key';
+import { setDeepSeekApiKey, setVolcengineAsrLegacyKeys } from '@/core/ai/api-key';
 import { runAiWorkerTick } from '@/core/ai/worker';
 import {
   acceptTranscriptCorrections,
@@ -119,11 +119,12 @@ describe('AI worker', () => {
     const db = await createMigratedTestDb();
     const fs = new MemoryFileSystem();
     await setValue(db, 'device_id', 'device-1');
-    await setVolcengineAsrApiKey('volc-key');
+    await setVolcengineAsrLegacyKeys('volc-app-id', 'volc-secret');
     await fs.writeString('/tmp/import.mp3', 'audio-bytes');
     vi.stubGlobal('fetch', (input: string, init: { headers: Record<string, string>; body: string }) => {
       expect(input).toBe('https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash');
-      expect(init.headers['X-Api-Key']).toBe('volc-key');
+      expect(init.headers['X-Api-App-Key']).toBe('volc-app-id');
+      expect(init.headers['X-Api-Access-Key']).toBe('volc-secret');
       expect(init.headers['X-Api-Resource-Id']).toBe('volc.bigasr.auc_turbo');
       expect(JSON.parse(init.body)).toMatchObject({
         audio: { data: Buffer.from('audio-bytes', 'utf8').toString('base64') },

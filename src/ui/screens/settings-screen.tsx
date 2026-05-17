@@ -17,7 +17,7 @@ import {
   getDeepSeekApiKey,
   getVolcengineAsrCredentials,
   setDeepSeekApiKey,
-  setVolcengineAsrApiKey,
+  setVolcengineAsrLegacyKeys,
 } from '../../core/ai/api-key';
 import { DeepSeekClient } from '../../core/ai/deepseek-client';
 import { runReconcile } from '../../core/reconcile/reconcile-job';
@@ -77,7 +77,8 @@ export function SettingsScreen(): React.ReactElement {
   const [hasAiKey, setHasAiKey] = useState(false);
   const [hasAsrKey, setHasAsrKey] = useState(false);
   const [aiKeyInput, setAiKeyInput] = useState('');
-  const [asrKeyInput, setAsrKeyInput] = useState('');
+  const [asrAppIdInput, setAsrAppIdInput] = useState('');
+  const [asrSecretInput, setAsrSecretInput] = useState('');
 
   const refresh = useCallback(async () => {
     const db = await openDb();
@@ -226,9 +227,15 @@ export function SettingsScreen(): React.ReactElement {
     setError(null);
     try {
       const db = await openDb();
-      if (asrKeyInput.trim()) {
-        await setVolcengineAsrApiKey(asrKeyInput);
-        setAsrKeyInput('');
+      const appId = asrAppIdInput.trim();
+      const secret = asrSecretInput.trim();
+      if (appId || secret) {
+        if (!appId || !secret) {
+          throw new Error('火山 App ID 和 Secret 需要一起填写');
+        }
+        await setVolcengineAsrLegacyKeys(appId, secret);
+        setAsrAppIdInput('');
+        setAsrSecretInput('');
       }
       await setVolcengineAsrBaseUrl(db, settings.volcengineAsr.baseUrl);
       await setVolcengineAsrResourceId(db, settings.volcengineAsr.resourceId);
@@ -248,9 +255,10 @@ export function SettingsScreen(): React.ReactElement {
     setError(null);
     try {
       await clearVolcengineAsrCredentials();
-      setAsrKeyInput('');
+      setAsrAppIdInput('');
+      setAsrSecretInput('');
       await refresh();
-      setMessage('火山语音识别 Key 已清除');
+      setMessage('火山语音识别凭证已清除');
     } catch (removeError) {
       setError(errorMessage(removeError));
     } finally {
@@ -412,7 +420,7 @@ export function SettingsScreen(): React.ReactElement {
             <Text style={styles.rowSub}>
               导入音频、语音备忘录分享和 X1 离线文件会先保存到本机，再上传音频副本识别。
             </Text>
-            <Text style={styles.statusLine}>Key：{hasAsrKey ? '已保存' : '未配置'}</Text>
+            <Text style={styles.statusLine}>凭证：{hasAsrKey ? '已保存' : '未配置'}</Text>
           </View>
           <Switch
             value={settings.volcengineAsr.enabled}
@@ -436,11 +444,20 @@ export function SettingsScreen(): React.ReactElement {
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder={hasAsrKey ? '输入新的 X-Api-Key 可替换现有 Key' : '火山 X-Api-Key'}
+          placeholder={hasAsrKey ? '输入新的 App ID 可替换现有配置' : '火山 App ID'}
+          placeholderTextColor="#94a3b8"
+          value={asrAppIdInput}
+          onChangeText={setAsrAppIdInput}
+          style={styles.input}
+        />
+        <TextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder={hasAsrKey ? '输入新的 Secret / Access Token 可替换现有配置' : '火山 Secret / Access Token'}
           placeholderTextColor="#94a3b8"
           secureTextEntry
-          value={asrKeyInput}
-          onChangeText={setAsrKeyInput}
+          value={asrSecretInput}
+          onChangeText={setAsrSecretInput}
           style={styles.input}
         />
         <TextInput
@@ -479,7 +496,7 @@ export function SettingsScreen(): React.ReactElement {
           <ActionButton disabled={busy} label="保存语音识别" onPress={() => void saveAsrConfig()} />
           <ActionButton
             disabled={busy || !hasAsrKey}
-            label="清除语音 Key"
+            label="清除语音凭证"
             onPress={() => void removeAsrKey()}
           />
         </View>

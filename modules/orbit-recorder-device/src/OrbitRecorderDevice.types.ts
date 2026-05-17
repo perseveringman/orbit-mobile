@@ -108,6 +108,11 @@ export interface X1ImportResult {
   mime: string;
   status: number;
   success: boolean;
+  chunksReceived?: number;
+  maxChunkBytes?: number;
+  nativeStartedAt?: string;
+  firstByteAt?: string | null;
+  nativeEndedAt?: string;
 }
 
 export interface X1RealtimeProgressEvent {
@@ -130,6 +135,7 @@ export interface X1RealtimeImportResult {
   startedAt?: string;
   endedAt?: string | null;
   chunksReceived?: number;
+  maxChunkBytes?: number;
 }
 
 export type X1DeviceStatusEvent =

@@ -15,7 +15,7 @@ Orbit Mobile will add a `recording_transcription` AI task backed by Volcengine D
 
 `POST https://openspeech.bytedance.com/api/v3/auc/bigmodel/recognize/flash`
 
-The app sends `audio.data` as base64 from the already-persisted local audio file, with `X-Api-Key` stored in iOS Keychain through `expo-secure-store`. SQLite stores only non-sensitive settings such as `resource_id`, base URL, auto-transcribe toggle, and optional `boosting_table_id`.
+The app sends `audio.data` as base64 from the already-persisted local audio file. Volcengine ASR credentials are stored in iOS Keychain through `expo-secure-store`; the current user-facing settings use the legacy-compatible `App ID + Secret/Access Token` pair, sent as `X-Api-App-Key` and `X-Api-Access-Key`. SQLite stores only non-sensitive settings such as `resource_id`, base URL, auto-transcribe toggle, and optional `boosting_table_id`.
 
 Imported recordings start with `recordings.final_state = 'offline_queued'` and `manifest.recording.final_provider = 'pending-cloud-asr'`. ASR success atomically rewrites local `final-transcript.json`, `manifest.json`, `manifest.json.sha256`, audio `transcription`, and `captures` metadata, then enqueues text-only DeepSeek notes/proofread tasks. ASR failure never rolls back or deletes the original audio capture.
 

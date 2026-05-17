@@ -106,6 +106,10 @@ export function importAudio(file: X1AudioFile, offset = 0): Promise<X1ImportResu
   return nativeModule.importAudio(file.name, file.byteSize, file.durationMs, offset);
 }
 
+export function setFrameDebugEnabled(enabled: boolean): Promise<void> {
+  return nativeModule.setFrameDebugEnabled(enabled);
+}
+
 export function stopImport(): Promise<void> {
   return nativeModule.stopImport();
 }

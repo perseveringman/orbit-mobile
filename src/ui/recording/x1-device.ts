@@ -16,7 +16,11 @@ export function formatBattery(value: number | null): string {
 
 export function formatX1StorageUsage(storage: X1StorageInfo | null): string {
   if (!storage) return '读取中';
-  return `已用 ${formatBytes(storage.usedBytes)} / ${formatBytes(storage.totalBytes)}`;
+  return `已用 ${formatBytes(x1StorageUsedBytes(storage))} / ${formatBytes(storage.totalBytes)}`;
+}
+
+export function x1StorageUsedBytes(storage: X1StorageInfo): number {
+  return Math.max(0, Math.min(storage.totalBytes, storage.freeBytes));
 }
 
 export function formatBytes(bytes: number | undefined): string {

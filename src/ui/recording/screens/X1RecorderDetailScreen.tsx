@@ -226,6 +226,12 @@ export function X1RecorderDetailScreen(): React.ReactElement {
 
   async function importFile(file: X1AudioFile): Promise<void> {
     if (importedNames.has(file.name)) return;
+    const startedAtMs = Date.now();
+    logImportTiming('detail-start', {
+      durationMs: file.durationMs,
+      expectedSize: file.byteSize,
+      name: file.name,
+    });
     setProgress({
       phase: 'started',
       name: file.name,
@@ -243,6 +249,10 @@ export function X1RecorderDetailScreen(): React.ReactElement {
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     void writeWidgetSnapshot(db).catch(() => undefined);
     void runSyncTick({ db });
+    logImportTiming('detail-complete', {
+      elapsedMs: Date.now() - startedAtMs,
+      name: file.name,
+    });
   }
 
   async function deleteFile(file: X1AudioFile): Promise<void> {
@@ -300,7 +310,7 @@ export function X1RecorderDetailScreen(): React.ReactElement {
           <Text style={styles.back}>← 录音</Text>
         </Pressable>
         <Text style={styles.title}>X1 录音卡</Text>
-        <Text style={styles.headerState}>{status.badge}</Text>
+        <View style={styles.headerSpacer} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -317,12 +327,10 @@ export function X1RecorderDetailScreen(): React.ReactElement {
             </View>
           </View>
 
-          <View style={styles.infoGrid}>
-            <InfoPill label="电量" value={formatBattery(deviceInfo.battery)} />
-            <InfoPill label="容量" value={formatX1StorageUsage(deviceInfo.storage)} wide />
-            <InfoPill label="固件" value={deviceInfo.version ?? '读取中'} />
-            <InfoPill label="MAC" value={deviceInfo.identity?.mac ?? '读取中'} wide />
-          </View>
+          <Text numberOfLines={2} style={styles.deviceInfoLine}>
+            电量 {formatBattery(deviceInfo.battery)} · 固件 {deviceInfo.version ?? '读取中'} · 容量 {formatX1StorageUsage(deviceInfo.storage)}
+            {deviceInfo.identity?.mac ? ` · MAC ${deviceInfo.identity.mac}` : ''}
+          </Text>
 
           <View style={styles.actions}>
             <Button
@@ -407,18 +415,11 @@ export function X1RecorderDetailScreen(): React.ReactElement {
               const imported = importedNames.has(file.name);
               return (
                 <View key={`${file.index}-${file.name}`} style={[styles.fileRow, busy && styles.disabled]}>
-                  <View style={styles.fileTop}>
-                    <View style={styles.rowMain}>
-                      <Text numberOfLines={1} style={styles.rowTitle}>{file.name}</Text>
-                      <Text style={styles.rowMeta}>
-                        {formatDurationLabel(file.durationMs)} · {formatBytes(file.byteSize)}
-                      </Text>
-                    </View>
-                    <View style={[styles.importPill, imported ? styles.importPillDone : styles.importPillTodo]}>
-                      <Text style={[styles.importPillText, imported ? styles.importPillDoneText : styles.importPillTodoText]}>
-                        {imported ? '已导入' : '未导入'}
-                      </Text>
-                    </View>
+                  <View style={styles.rowMain}>
+                    <Text numberOfLines={1} style={styles.rowTitle}>{file.name}</Text>
+                    <Text style={styles.rowMeta}>
+                      {formatDurationLabel(file.durationMs)} · {formatBytes(file.byteSize)}
+                    </Text>
                   </View>
                   <View style={styles.fileActions}>
                     <Pressable
@@ -485,23 +486,6 @@ function Button({
   );
 }
 
-function InfoPill({
-  label,
-  value,
-  wide = false,
-}: {
-  label: string;
-  value: string;
-  wide?: boolean;
-}): React.ReactElement {
-  return (
-    <View style={[styles.infoPill, wide && styles.infoPillWide]}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text numberOfLines={1} style={styles.infoValue}>{value}</Text>
-    </View>
-  );
-}
-
 function describeX1Connection(state: X1ConnectionStateEvent): { badge: string; hint: string } {
   if (state.connectionState === 'connected') return { badge: '已连接', hint: state.device?.name || '录音卡已连接' };
   if (state.bluetoothState === 'poweredOff' || state.bluetoothState === 'unauthorized') return { badge: '未连接', hint: '蓝牙不可用' };
@@ -548,6 +532,15 @@ function messageForError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function logImportTiming(phase: string, payload: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === 'production') return;
+  console.info('[x1-import-timing]', {
+    at: new Date().toISOString(),
+    phase,
+    ...payload,
+  });
+}
+
 const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.bg,
@@ -559,7 +552,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   back: {
     color: colors.accent,
@@ -571,15 +564,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '900',
   },
-  headerState: {
-    color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '800',
-    minWidth: 56,
-    textAlign: 'right',
+  headerSpacer: {
+    width: 56,
   },
   scroll: {
-    gap: spacing.lg,
     paddingBottom: 56,
   },
   deviceCard: {
@@ -587,13 +575,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    gap: 14,
-    padding: 14,
+    gap: 8,
+    padding: 10,
   },
   deviceTop: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     justifyContent: 'space-between',
   },
   deviceTitleBlock: {
@@ -602,19 +590,19 @@ const styles = StyleSheet.create({
   },
   deviceName: {
     color: colors.textPrimary,
-    fontSize: 18,
+    fontSize: 15,
     fontWeight: '900',
   },
   deviceMeta: {
     color: colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    marginTop: 4,
+    marginTop: 2,
   },
   statusPill: {
     borderRadius: radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   statusPillReady: {
     backgroundColor: colors.successSoft,
@@ -623,7 +611,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warningSoft,
   },
   statusPillText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
   },
   statusPillReadyText: {
@@ -632,50 +620,26 @@ const styles = StyleSheet.create({
   statusPillPendingText: {
     color: colors.warning,
   },
-  infoGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  infoPill: {
-    backgroundColor: colors.bg,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexBasis: '47%',
-    flexGrow: 1,
-    minWidth: 0,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-  },
-  infoPillWide: {
-    flexBasis: '100%',
-  },
-  infoLabel: {
-    color: colors.textMuted,
-    fontSize: 10,
-    fontWeight: '900',
-    marginBottom: 3,
-  },
-  infoValue: {
-    color: colors.textPrimary,
-    fontSize: 12,
+  deviceInfoLine: {
+    color: colors.textSecondary,
+    fontSize: 11,
     fontVariant: ['tabular-nums'],
-    fontWeight: '900',
+    fontWeight: '800',
+    lineHeight: 16,
   },
   actions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 6,
   },
   button: {
     alignItems: 'center',
     backgroundColor: colors.ink,
     borderRadius: radius.pill,
     flexGrow: 1,
-    minWidth: 94,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    minWidth: 68,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   buttonSecondary: {
     backgroundColor: colors.bg,
@@ -684,14 +648,14 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     color: colors.bg,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
   },
   buttonSecondaryText: {
     color: colors.textPrimary,
   },
   section: {
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
   },
   sectionHeader: {
     alignItems: 'center',
@@ -730,19 +694,16 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   fileRow: {
+    alignItems: 'center',
     backgroundColor: colors.bgSoft,
     borderColor: colors.border,
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    gap: 12,
-    marginBottom: 10,
-    padding: 14,
-  },
-  fileTop: {
-    alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
     justifyContent: 'space-between',
+    marginBottom: 8,
+    padding: 10,
   },
   rowMain: {
     flex: 1,
@@ -750,7 +711,7 @@ const styles = StyleSheet.create({
   },
   rowTitle: {
     color: colors.textPrimary,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
   },
   rowMeta: {
@@ -758,44 +719,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontVariant: ['tabular-nums'],
     fontWeight: '700',
-    marginTop: 4,
+    marginTop: 2,
   },
   rowAction: {
     color: colors.accent,
     fontSize: 13,
     fontWeight: '900',
   },
-  importPill: {
-    borderRadius: radius.pill,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  importPillDone: {
-    backgroundColor: colors.successSoft,
-  },
-  importPillTodo: {
-    backgroundColor: colors.bgRaised,
-  },
-  importPillText: {
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  importPillDoneText: {
-    color: colors.success,
-  },
-  importPillTodoText: {
-    color: colors.textMuted,
-  },
   fileActions: {
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: 10,
+    flexShrink: 0,
+    gap: 6,
   },
   fileActionButton: {
     alignItems: 'center',
     backgroundColor: colors.ink,
     borderRadius: radius.pill,
-    flex: 1,
-    paddingVertical: 10,
+    minWidth: 56,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   fileActionButtonDone: {
     backgroundColor: colors.bgRaised,
@@ -806,12 +749,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
-    flex: 1,
-    paddingVertical: 10,
+    minWidth: 50,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
   fileActionText: {
     color: colors.bg,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
   },
   fileActionDoneText: {
@@ -819,7 +763,7 @@ const styles = StyleSheet.create({
   },
   fileActionDangerText: {
     color: colors.danger,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
   },
   progressBand: {

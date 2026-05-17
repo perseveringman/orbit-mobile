@@ -95,6 +95,7 @@ import { SpeakerAvatar } from '../components/SpeakerAvatar';
 import { Waveform } from '../components/Waveform';
 import { formatTimestamp } from '../format';
 import { colors, radius, spacing } from '../theme';
+import { formatX1StorageUsage } from '../x1-device';
 
 type ComposerTab = 'mark' | 'transcript' | 'source';
 type RecordingSource = 'iphone' | 'x1';
@@ -1354,8 +1355,7 @@ function formatBattery(value: number | null): string {
 }
 
 function formatX1Storage(storage: X1StorageInfo | null): string {
-  if (!storage) return '连接后读取';
-  return `${formatBytes(storage.freeBytes)} 可用 / ${formatBytes(storage.totalBytes)}`;
+  return storage ? formatX1StorageUsage(storage) : '连接后读取';
 }
 
 function formatBytes(bytes: number | undefined): string {

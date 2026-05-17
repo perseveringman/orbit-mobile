@@ -18,8 +18,33 @@ export async function importX1AudioFile(
   file: X1AudioFile,
   options: ImportX1AudioOptions = {},
 ): Promise<RecordingDetail> {
+  const startedAtMs = Date.now();
+  logImportTiming('native-start', {
+    durationMs: file.durationMs,
+    expectedSize: file.byteSize,
+    name: file.name,
+  });
   const imported = await importAudio(file, 0);
-  return saveImportedX1Audio(file, imported, options);
+  logImportTiming('native-complete', {
+    byteSize: imported.byteSize,
+    chunksReceived: imported.chunksReceived,
+    elapsedMs: Date.now() - startedAtMs,
+    expectedSize: imported.expectedSize,
+    firstByteAt: imported.firstByteAt,
+    maxChunkBytes: imported.maxChunkBytes,
+    name: imported.name || file.name,
+    nativeEndedAt: imported.nativeEndedAt,
+    nativeStartedAt: imported.nativeStartedAt,
+    status: imported.status,
+    success: imported.success,
+  });
+  const saved = await saveImportedX1Audio(file, imported, options);
+  logImportTiming('total-complete', {
+    elapsedMs: Date.now() - startedAtMs,
+    id: saved.meta.id,
+    name: file.name,
+  });
+  return saved;
 }
 
 export async function saveImportedX1Audio(
@@ -31,6 +56,12 @@ export async function saveImportedX1Audio(
     throw new Error(`x1.import_failed_status:${imported.status}`);
   }
 
+  const captureStartedAtMs = Date.now();
+  logImportTiming('capture-start', {
+    byteSize: imported.byteSize,
+    expectedSize: imported.expectedSize,
+    name: imported.name || file.name,
+  });
   const db = options.db ?? (await openDb());
   const startedAt = new Date().toISOString();
   const recordedAt = startedAtFromFilename(file.name) ?? startedAt;
@@ -62,6 +93,11 @@ export async function saveImportedX1Audio(
       sourceVersion: options.sourceVersion ?? '0.0.0',
     },
   );
+  logImportTiming('capture-complete', {
+    elapsedMs: Date.now() - captureStartedAtMs,
+    id: detail.meta.id,
+    name: file.name,
+  });
   await expoFileSystem.delete(imported.uri, { idempotent: true }).catch(() => undefined);
   return detail;
 }
@@ -199,4 +235,13 @@ function normalizeIsoDate(value?: string | null): string | null {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString();
+}
+
+function logImportTiming(phase: string, payload: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === 'production') return;
+  console.info('[x1-import-timing]', {
+    at: new Date().toISOString(),
+    phase,
+    ...payload,
+  });
 }

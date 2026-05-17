@@ -56,9 +56,12 @@ export async function setVolcengineAsrApiKey(value: string): Promise<void> {
     await SecureStore.deleteItemAsync(VOLCENGINE_ASR_API_KEY);
     return;
   }
-  await SecureStore.setItemAsync(VOLCENGINE_ASR_API_KEY, trimmed, {
-    keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-  });
+  await Promise.all([
+    SecureStore.setItemAsync(VOLCENGINE_ASR_API_KEY, trimmed, {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    }),
+    clearVolcengineAsrLegacyKeys(),
+  ]);
 }
 
 export async function setVolcengineAsrLegacyKeys(appKey: string, accessKey: string): Promise<void> {
@@ -69,6 +72,7 @@ export async function setVolcengineAsrLegacyKeys(appKey: string, accessKey: stri
     return;
   }
   await Promise.all([
+    SecureStore.deleteItemAsync(VOLCENGINE_ASR_API_KEY),
     SecureStore.setItemAsync(VOLCENGINE_ASR_APP_KEY, normalizedAppKey, {
       keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
     }),

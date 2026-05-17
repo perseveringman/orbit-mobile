@@ -152,7 +152,7 @@ CREATE TABLE device_info (
 - `user_setting_asr_base_url` — 火山语音识别 API base URL，默认 `https://openspeech.bytedance.com`
 - `user_setting_asr_resource_id` — 火山语音识别资源 ID，默认 `volc.bigasr.auc_turbo`
 - `user_setting_asr_uid` — ASR 请求中的用户标识，默认 `orbit-mobile`
-- `user_setting_asr_boosting_table_id` — 可选火山热词表 ID；敏感 Key 不进 SQLite，只存 iOS Keychain
+- `user_setting_asr_boosting_table_id` — 可选火山热词表 ID；敏感 ASR 凭证不进 SQLite，只存 iOS Keychain
 - `user_setting_gc_days` — acked 后多久本地清理，默认 30
 
 ### 1.5 recordings 表

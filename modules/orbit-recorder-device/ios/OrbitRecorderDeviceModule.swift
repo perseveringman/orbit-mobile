@@ -21,9 +21,18 @@ private final class ActiveImport {
   let outputURL: URL
   let fileHandle: FileHandle
   let continuation: CheckedContinuation<[String: Any], Error>
+  let startedAt = Date()
+  var firstByteAt: Date?
   var deviceName: String?
+  var audioBuffer = Data()
   var bytesReceived = 0
+  var chunksReceived = 0
+  var flushedBytes = 0
+  var maxChunkBytes = 0
   var timeout: DispatchWorkItem?
+  var lastTimeoutRefreshAt = Date.distantPast
+  var lastProgressSentAt = Date.distantPast
+  var lastProgressBytes = 0
 
   init(
     requestedName: String,
@@ -47,11 +56,16 @@ private final class ActiveRealtimeImport {
   let outputURL: URL
   let fileHandle: FileHandle
   let startedAt: Date
+  var audioBuffer = Data()
   var bytesReceived = 0
   var chunksReceived = 0
+  var flushedBytes = 0
+  var maxChunkBytes = 0
   var isStopping = false
   var stopTimeout: DispatchWorkItem?
   var stopContinuation: CheckedContinuation<[String: Any], Error>?
+  var lastProgressSentAt = Date.distantPast
+  var lastProgressBytes = 0
 
   init(requestedName: String, outputURL: URL, fileHandle: FileHandle, startedAt: Date) {
     self.requestedName = requestedName
@@ -116,7 +130,15 @@ public class OrbitRecorderDeviceModule: Module {
   private let notifyUUID = CBUUID(string: "0000AE22-0000-1000-8000-00805F9B34FB")
 
   private lazy var bluetoothDelegate = OrbitRecorderDeviceBluetoothDelegate(owner: self)
-  private lazy var centralManager = CBCentralManager(delegate: bluetoothDelegate, queue: nil)
+  private let bluetoothQueue = DispatchQueue(label: "com.orbit.recorder-device.bluetooth", qos: .userInitiated)
+  private let bluetoothQueueKey = DispatchSpecificKey<UInt8>()
+  private lazy var configureBluetoothQueue: Void = {
+    bluetoothQueue.setSpecific(key: bluetoothQueueKey, value: 1)
+  }()
+  private lazy var centralManager: CBCentralManager = {
+    _ = configureBluetoothQueue
+    return CBCentralManager(delegate: bluetoothDelegate, queue: bluetoothQueue)
+  }()
   private var discoveredPeripherals: [String: CBPeripheral] = [:]
   private var discoveredPayloads: [String: [String: Any]] = [:]
   private var connectedPeripheral: CBPeripheral?
@@ -130,6 +152,15 @@ public class OrbitRecorderDeviceModule: Module {
   private var pendingCommands: [String: PendingCommand] = [:]
   private var activeImport: ActiveImport?
   private var activeRealtimeImport: ActiveRealtimeImport?
+  private var frameDebugEnabled = false
+
+  private let audioWriteFlushBytes = 64 * 1024
+  private let importProgressEventMinInterval: TimeInterval = 1.0
+  private let realtimeProgressEventMinInterval: TimeInterval = 0.25
+  private let importProgressEventMinBytes = 64 * 1024
+  private let realtimeProgressEventMinBytes = 16 * 1024
+  private let importTimeoutSeconds: TimeInterval = 20
+  private let importTimeoutRefreshMinInterval: TimeInterval = 2
 
   public func definition() -> ModuleDefinition {
     Name("OrbitRecorderDevice")
@@ -148,19 +179,19 @@ public class OrbitRecorderDeviceModule: Module {
     )
 
     AsyncFunction("getState") { () async throws -> [String: Any] in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         return self.statePayload()
       }
     }
 
     AsyncFunction("startScan") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         try self.startScanInternal()
       }
     }
 
     AsyncFunction("stopScan") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         self.stopScanInternal()
       }
     }
@@ -170,13 +201,13 @@ public class OrbitRecorderDeviceModule: Module {
     }
 
     AsyncFunction("disconnect") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         self.disconnectInternal()
       }
     }
 
     AsyncFunction("sendCheckTime") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         self.sequence = 0
       }
       _ = try await self.requestAckPayload(
@@ -284,7 +315,7 @@ public class OrbitRecorderDeviceModule: Module {
         timeout: 8
       ) { payload in
         let list = try self.parseAudioListPayload(payload, requestedStart: safeStart)
-        self.sendEvent("onAudioList", ["files": list])
+        self.emitEvent("onAudioList", ["files": list])
         return list
       }
     }
@@ -293,12 +324,18 @@ public class OrbitRecorderDeviceModule: Module {
       try await self.importAudio(name: name, expectedSize: expectedSize, durationMs: durationMs, offset: offset)
     }
 
+    AsyncFunction("setFrameDebugEnabled") { (enabled: Bool) async throws -> Void in
+      try await self.runOnBluetoothQueue {
+        self.frameDebugEnabled = enabled
+      }
+    }
+
     AsyncFunction("pauseImportTransfer") { (paused: Bool) async throws -> [String: Any] in
       try await self.requestAckPayload(request: [2, 10, paused ? UInt8(1) : UInt8(0)], timeout: 4)
     }
 
     AsyncFunction("stopImport") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         try self.ensureConnected()
         try self.writePayload([2, 7, 0])
         self.failActiveImport(self.moduleError("x1.import_stopped_by_user"), deleteFile: true)
@@ -356,7 +393,7 @@ public class OrbitRecorderDeviceModule: Module {
     }
 
     AsyncFunction("cancelRealtimeImport") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         if self.activeRealtimeImport != nil {
           _ = try? self.writePayload([1, 2])
         }
@@ -365,48 +402,49 @@ public class OrbitRecorderDeviceModule: Module {
     }
 
     AsyncFunction("startRealtimeRecord") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         try self.ensureConnected()
         try self.writePayload([1, 0])
       }
     }
 
     AsyncFunction("stopRealtimeRecord") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         try self.ensureConnected()
         try self.writePayload([1, 2])
       }
     }
 
     AsyncFunction("pauseRealtimeRecord") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         try self.ensureConnected()
         try self.writePayload([1, 3, 1])
       }
     }
 
     AsyncFunction("continueRealtimeRecord") { () async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         try self.ensureConnected()
         try self.writePayload([1, 3, 0])
       }
     }
 
     AsyncFunction("sendRawPayload") { (hex: String) async throws -> Void in
-      try await self.runOnMain {
+      try await self.runOnBluetoothQueue {
         try self.ensureConnected()
         try self.writePayload(self.parseHexPayload(hex))
       }
     }
   }
 
-  private func runOnMain<T>(_ body: @escaping () throws -> T) async throws -> T {
-    if Thread.isMainThread {
+  private func runOnBluetoothQueue<T>(_ body: @escaping () throws -> T) async throws -> T {
+    _ = configureBluetoothQueue
+    if DispatchQueue.getSpecific(key: bluetoothQueueKey) != nil {
       return try body()
     }
 
     return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
-      DispatchQueue.main.async {
+      bluetoothQueue.async {
         do {
           continuation.resume(returning: try body())
         } catch {
@@ -416,21 +454,24 @@ public class OrbitRecorderDeviceModule: Module {
     }
   }
 
-  private func beginOnMain<T>(_ body: @escaping (CheckedContinuation<T, Error>) -> Void) async throws -> T {
-    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+  private func beginOnBluetoothQueue<T>(_ body: @escaping (CheckedContinuation<T, Error>) -> Void) async throws -> T {
+    _ = configureBluetoothQueue
+    return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
       let execute = {
         body(continuation)
       }
-      if Thread.isMainThread {
+      if DispatchQueue.getSpecific(key: bluetoothQueueKey) != nil {
         execute()
       } else {
-        DispatchQueue.main.async(execute: execute)
+        bluetoothQueue.async {
+          execute()
+        }
       }
     }
   }
 
   private func connect(identifier: String) async throws -> [String: Any] {
-    try await beginOnMain { continuation in
+    try await beginOnBluetoothQueue { continuation in
       do {
         try self.ensureBluetoothPoweredOn()
         guard self.connectContinuation == nil else {
@@ -470,7 +511,7 @@ public class OrbitRecorderDeviceModule: Module {
     timeout: TimeInterval,
     parse: @escaping ([UInt8]) throws -> T
   ) async throws -> T {
-    try await beginOnMain { continuation in
+    try await beginOnBluetoothQueue { continuation in
       var pendingKey: String?
       do {
         try self.ensureConnected()
@@ -507,7 +548,7 @@ public class OrbitRecorderDeviceModule: Module {
   }
 
   private func requestAckPayload(request: [UInt8], timeout: TimeInterval) async throws -> [String: Any] {
-    try await beginOnMain { continuation in
+    try await beginOnBluetoothQueue { continuation in
       var pendingKey: String?
       do {
         try self.ensureConnected()
@@ -555,7 +596,7 @@ public class OrbitRecorderDeviceModule: Module {
   }
 
   private func importAudio(name: String, expectedSize: Int, durationMs: Int, offset: Int) async throws -> [String: Any] {
-    try await beginOnMain { continuation in
+    try await beginOnBluetoothQueue { continuation in
       do {
         try self.ensureConnected()
         guard self.activeImport == nil else {
@@ -581,8 +622,9 @@ public class OrbitRecorderDeviceModule: Module {
           fileHandle: handle,
           continuation: continuation
         )
+        state.audioBuffer.reserveCapacity(self.audioWriteFlushBytes)
         self.activeImport = state
-        self.refreshImportTimeout()
+        self.refreshImportTimeout(force: true)
         try self.writePayload(self.startImportPayload(name: safeName, offset: max(0, offset)))
       } catch {
         continuation.resume(throwing: error)
@@ -591,7 +633,7 @@ public class OrbitRecorderDeviceModule: Module {
   }
 
   private func startRealtimeImport(name: String) async throws -> [String: Any] {
-    try await runOnMain {
+    try await runOnBluetoothQueue {
       try self.ensureConnected()
       guard self.activeRealtimeImport == nil else {
         throw self.moduleError("x1.realtime_busy")
@@ -612,15 +654,16 @@ public class OrbitRecorderDeviceModule: Module {
         fileHandle: handle,
         startedAt: Date()
       )
+      state.audioBuffer.reserveCapacity(self.audioWriteFlushBytes)
       self.activeRealtimeImport = state
       try self.writePayload([1, 0])
-      self.sendEvent("onRealtimeProgress", self.realtimeProgressPayload(phase: "started", state: state))
+      self.emitEvent("onRealtimeProgress", self.realtimeProgressPayload(phase: "started", state: state))
       return self.realtimeStartPayload(state: state)
     }
   }
 
   private func stopRealtimeImport() async throws -> [String: Any] {
-    try await beginOnMain { continuation in
+    try await beginOnBluetoothQueue { continuation in
       do {
         try self.ensureConnected()
         guard let state = self.activeRealtimeImport else {
@@ -638,7 +681,7 @@ public class OrbitRecorderDeviceModule: Module {
           self.completeRealtimeImport(status: 0)
         }
         try self.writePayload([1, 2])
-        self.sendEvent("onRealtimeProgress", self.realtimeProgressPayload(phase: "stopping", state: state))
+        self.emitEvent("onRealtimeProgress", self.realtimeProgressPayload(phase: "stopping", state: state))
       } catch {
         continuation.resume(throwing: error)
       }
@@ -676,7 +719,7 @@ public class OrbitRecorderDeviceModule: Module {
       "isLikelyX1": isLikelyX1(name: name, advertisedServices: services)
     ]
     discoveredPayloads[identifier] = payload
-    sendEvent("onScanResult", payload)
+    emitEvent("onScanResult", payload)
   }
 
   func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
@@ -884,13 +927,7 @@ public class OrbitRecorderDeviceModule: Module {
     let usedSequence = frame[1]
     let writeType: CBCharacteristicWriteType = characteristic.properties.contains(.write) ? .withResponse : .withoutResponse
     peripheral.writeValue(frame, for: characteristic, type: writeType)
-    sendEvent("onFrame", [
-      "direction": "tx",
-      "frameHex": hexString(Array(frame)),
-      "payloadHex": hexString(payload),
-      "type": Int(payload.first ?? 0),
-      "command": payload.count > 1 ? Int(payload[1]) : NSNull()
-    ])
+    emitFrameEvent(direction: "tx", frame: Array(frame), payload: payload, crcValid: nil)
     return usedSequence
   }
 
@@ -898,7 +935,7 @@ public class OrbitRecorderDeviceModule: Module {
     let length = UInt16(payload.count)
     let lengthLow = UInt8(length & 0x00ff)
     let lengthHigh = UInt8((length >> 8) & 0x00ff)
-    let crc = crc16Xmodem([lengthLow, lengthHigh] + payload)
+    let crc = crc16Xmodem(lengthLow: lengthLow, lengthHigh: lengthHigh, payload: payload)
     let frameBytes: [UInt8] = [
       0x5A,
       sequence,
@@ -931,60 +968,51 @@ public class OrbitRecorderDeviceModule: Module {
       }
       guard receiveBuffer.count >= frameLength else { return }
 
-      let frame = Array(receiveBuffer.prefix(frameLength))
-      receiveBuffer.removeSubrange(0..<frameLength)
-
-      let actualCrc = UInt16(frame[2]) | (UInt16(frame[3]) << 8)
-      let payload = Array(frame[6..<frameLength])
-      let expectedCrc = crc16Xmodem([frame[4], frame[5]] + payload)
+      let actualCrc = UInt16(receiveBuffer[2]) | (UInt16(receiveBuffer[3]) << 8)
+      let payload = receiveBuffer.subdata(in: 6..<frameLength)
+      let expectedCrc = crc16Xmodem(lengthLow: receiveBuffer[4], lengthHigh: receiveBuffer[5], payload: payload)
       guard actualCrc == expectedCrc else {
         emitError(moduleError("x1.crc_mismatch"))
-        sendEvent("onFrame", [
-          "direction": "rx",
-          "frameHex": hexString(frame),
-          "payloadHex": hexString(payload),
-          "crcValid": false
-        ])
+        if frameDebugEnabled {
+          emitFrameEvent(direction: "rx", frame: Array(receiveBuffer.prefix(frameLength)), payload: Array(payload), crcValid: false)
+        }
+        receiveBuffer.removeSubrange(0..<frameLength)
         continue
       }
 
-      sendEvent("onFrame", [
-        "direction": "rx",
-        "frameHex": hexString(frame),
-        "payloadHex": hexString(payload),
-        "crcValid": true,
-        "type": Int(payload.first ?? 0),
-        "command": payload.count > 1 ? Int(payload[1]) : NSNull()
-      ])
+      if frameDebugEnabled {
+        emitFrameEvent(direction: "rx", frame: Array(receiveBuffer.prefix(frameLength)), payload: Array(payload), crcValid: true)
+      }
+      receiveBuffer.removeSubrange(0..<frameLength)
       handlePayload(payload)
     }
   }
 
-  private func handlePayload(_ payload: [UInt8]) {
+  private func handlePayload(_ payload: Data) {
     guard payload.count >= 2 else { return }
     let type = payload[0]
     let command = payload[1]
     let key = pendingKey(type: type, command: command)
     if let pending = pendingCommands.removeValue(forKey: key) {
       pending.timeout.cancel()
-      pending.resolve(payload)
+      pending.resolve(Array(payload))
     }
 
     if type == 0 {
-      handleControlPayload(payload)
+      handleControlPayload(Array(payload))
     } else if type == 1 {
       handleRealtimePayload(payload)
     } else if type == 2 {
       handleImportPayload(payload)
     } else if type == 3 {
-      sendEvent("onDeviceStatus", [
+      emitEvent("onDeviceStatus", [
         "kind": "ack",
         "sequence": Int(command)
       ])
     }
   }
 
-  private func handleRealtimePayload(_ payload: [UInt8]) {
+  private func handleRealtimePayload(_ payload: Data) {
     guard payload.count >= 2 else { return }
     let command = payload[1]
     if command == 1 {
@@ -997,14 +1025,20 @@ public class OrbitRecorderDeviceModule: Module {
     }
   }
 
-  private func writeRealtimeAudioChunk(_ payload: [UInt8]) {
+  private func writeRealtimeAudioChunk(_ payload: Data) {
     guard let state = activeRealtimeImport, payload.count > 2 else { return }
-    let chunk = Data(payload.dropFirst(2))
     do {
-      try state.fileHandle.write(contentsOf: chunk)
-      state.bytesReceived += chunk.count
+      let chunkByteCount = payload.count - 2
+      state.audioBuffer.append(contentsOf: payload.dropFirst(2))
+      state.bytesReceived += chunkByteCount
       state.chunksReceived += 1
-      sendEvent("onRealtimeProgress", realtimeProgressPayload(phase: "receiving", state: state))
+      state.maxChunkBytes = max(state.maxChunkBytes, chunkByteCount)
+      if state.audioBuffer.count >= audioWriteFlushBytes {
+        try flushRealtimeAudioBuffer(state)
+      }
+      if shouldEmitRealtimeProgress(state) {
+        emitEvent("onRealtimeProgress", realtimeProgressPayload(phase: "receiving", state: state))
+      }
     } catch {
       failActiveRealtimeImport(error, deleteFile: false)
     }
@@ -1014,56 +1048,66 @@ public class OrbitRecorderDeviceModule: Module {
     guard payload.count >= 2 else { return }
     let command = payload[1]
     if command == 4, payload.count >= 3 {
-      sendEvent("onDeviceStatus", [
+      emitEvent("onDeviceStatus", [
         "kind": "battery",
         "battery": Int(payload[2])
       ])
     } else if command == 11 {
-      sendEvent("onDeviceStatus", [
+      emitEvent("onDeviceStatus", [
         "kind": "version",
         "version": utf8String(Array(payload.dropFirst(2)))
       ])
     } else if command == 2, payload.count >= 10 {
       let usedBytes = Int(uint32LE(payload, offset: 2)) * 1024
       let totalBytes = Int(uint32LE(payload, offset: 6)) * 1024
-      sendEvent("onDeviceStatus", [
+      emitEvent("onDeviceStatus", [
         "kind": "storage",
         "usedBytes": usedBytes,
         "totalBytes": totalBytes,
         "freeBytes": max(0, totalBytes - usedBytes)
       ])
     } else if command == 6, let settings = try? settingsPayload(payload) {
-      sendEvent("onDeviceStatus", settings)
+      emitEvent("onDeviceStatus", settings)
     } else if command == 13, let identity = try? deviceIdentityPayload(payload) {
-      sendEvent("onDeviceStatus", identity)
+      emitEvent("onDeviceStatus", identity)
     } else if command == 14, payload.count >= 3 {
-      sendEvent("onDeviceStatus", deviceFlagsPayload(flags: payload[2]))
+      emitEvent("onDeviceStatus", deviceFlagsPayload(flags: payload[2]))
     } else if command == 15 {
-      sendEvent("onDeviceStatus", [
+      emitEvent("onDeviceStatus", [
         "kind": "unbound"
       ])
     }
   }
 
-  private func handleImportPayload(_ payload: [UInt8]) {
+  private func handleImportPayload(_ payload: Data) {
     guard payload.count >= 2 else { return }
     let command = payload[1]
 
     if command == 3 {
       let name = utf8String(Array(payload.dropFirst(2)))
       activeImport?.deviceName = name.isEmpty ? nil : name
-      sendEvent("onImportProgress", importProgressPayload(phase: "started"))
-      refreshImportTimeout()
+      emitEvent("onImportProgress", importProgressPayload(phase: "started"))
+      refreshImportTimeout(force: true)
       return
     }
 
     if command == 4 {
       guard let state = activeImport else { return }
-      let chunk = Data(payload.dropFirst(2))
       do {
-        try state.fileHandle.write(contentsOf: chunk)
-        state.bytesReceived += chunk.count
-        sendEvent("onImportProgress", importProgressPayload(phase: "receiving"))
+        let chunkByteCount = payload.count - 2
+        if state.firstByteAt == nil {
+          state.firstByteAt = Date()
+        }
+        state.audioBuffer.append(contentsOf: payload.dropFirst(2))
+        state.bytesReceived += chunkByteCount
+        state.chunksReceived += 1
+        state.maxChunkBytes = max(state.maxChunkBytes, chunkByteCount)
+        if state.audioBuffer.count >= audioWriteFlushBytes {
+          try flushImportAudioBuffer(state)
+        }
+        if shouldEmitImportProgress(state) {
+          emitEvent("onImportProgress", importProgressPayload(phase: "receiving"))
+        }
         refreshImportTimeout()
       } catch {
         failActiveImport(error, deleteFile: false)
@@ -1079,10 +1123,10 @@ public class OrbitRecorderDeviceModule: Module {
     }
 
     if command == 34 {
-      sendEvent("onDeviceStatus", [
+      emitEvent("onDeviceStatus", [
         "kind": "deleteAudio",
         "status": payload.count >= 3 ? Int(payload[2]) : 0,
-        "payloadHex": hexString(payload)
+        "payloadHex": hexString(Array(payload))
       ])
       return
     }
@@ -1096,9 +1140,12 @@ public class OrbitRecorderDeviceModule: Module {
   private func completeImport(status: Int, state: ActiveImport) {
     activeImport = nil
     state.timeout?.cancel()
+    var closeError: Error?
     do {
+      try flushImportAudioBuffer(state)
       try state.fileHandle.close()
     } catch {
+      closeError = error
       emitError(error)
     }
 
@@ -1111,10 +1158,18 @@ public class OrbitRecorderDeviceModule: Module {
       "durationMs": state.durationMs,
       "mime": mimeType(for: resolvedName),
       "status": status,
-      "success": status == 0
+      "success": status == 0,
+      "chunksReceived": state.chunksReceived,
+      "maxChunkBytes": state.maxChunkBytes,
+      "nativeStartedAt": isoString(state.startedAt),
+      "firstByteAt": state.firstByteAt.map { isoString($0) } ?? NSNull(),
+      "nativeEndedAt": isoString(Date())
     ]
-    sendEvent("onImportComplete", result)
-    if status == 0 {
+    emitEvent("onImportComplete", result)
+    if let closeError {
+      try? FileManager.default.removeItem(at: state.outputURL)
+      state.continuation.resume(throwing: closeError)
+    } else if status == 0 {
       state.continuation.resume(returning: result)
     } else {
       try? FileManager.default.removeItem(at: state.outputURL)
@@ -1127,6 +1182,7 @@ public class OrbitRecorderDeviceModule: Module {
     activeImport = nil
     state.timeout?.cancel()
     do {
+      try? flushImportAudioBuffer(state)
       try state.fileHandle.close()
     } catch {
       emitError(error)
@@ -1143,17 +1199,23 @@ public class OrbitRecorderDeviceModule: Module {
     activeRealtimeImport = nil
     state.stopTimeout?.cancel()
     state.stopTimeout = nil
+    var closeError: Error?
     do {
+      try flushRealtimeAudioBuffer(state)
       state.fileHandle.synchronizeFile()
       try state.fileHandle.close()
     } catch {
+      closeError = error
       emitError(error)
     }
 
     let success = realtimeStopSucceeded(status: status, state: state)
     let result = realtimeCompletePayload(status: status, success: success, state: state)
-    sendEvent("onRealtimeComplete", result)
-    if success {
+    emitEvent("onRealtimeComplete", result)
+    if let closeError {
+      try? FileManager.default.removeItem(at: state.outputURL)
+      state.stopContinuation?.resume(throwing: closeError)
+    } else if success {
       state.stopContinuation?.resume(returning: result)
     } else {
       try? FileManager.default.removeItem(at: state.outputURL)
@@ -1167,6 +1229,7 @@ public class OrbitRecorderDeviceModule: Module {
     state.stopTimeout?.cancel()
     state.stopTimeout = nil
     do {
+      try? flushRealtimeAudioBuffer(state)
       try state.fileHandle.close()
     } catch {
       emitError(error)
@@ -1178,13 +1241,57 @@ public class OrbitRecorderDeviceModule: Module {
     emitError(error)
   }
 
-  private func refreshImportTimeout() {
+  private func flushImportAudioBuffer(_ state: ActiveImport) throws {
+    guard state.audioBuffer.isEmpty == false else { return }
+    try state.fileHandle.write(contentsOf: state.audioBuffer)
+    state.flushedBytes += state.audioBuffer.count
+    state.audioBuffer.removeAll(keepingCapacity: true)
+  }
+
+  private func flushRealtimeAudioBuffer(_ state: ActiveRealtimeImport) throws {
+    guard state.audioBuffer.isEmpty == false else { return }
+    try state.fileHandle.write(contentsOf: state.audioBuffer)
+    state.flushedBytes += state.audioBuffer.count
+    state.audioBuffer.removeAll(keepingCapacity: true)
+  }
+
+  private func refreshImportTimeout(force: Bool = false) {
     guard let state = activeImport else { return }
+    let now = Date()
+    if !force && now.timeIntervalSince(state.lastTimeoutRefreshAt) < importTimeoutRefreshMinInterval {
+      return
+    }
     state.timeout?.cancel()
-    state.timeout = scheduleTimeout(after: 20) { [weak self] in
+    state.lastTimeoutRefreshAt = now
+    state.timeout = scheduleTimeout(after: importTimeoutSeconds) { [weak self] in
       guard let self else { return }
       self.failActiveImport(self.moduleError("x1.import_idle_timeout"), deleteFile: false)
     }
+  }
+
+  private func shouldEmitImportProgress(_ state: ActiveImport) -> Bool {
+    let now = Date()
+    let byteDelta = state.bytesReceived - state.lastProgressBytes
+    let elapsed = now.timeIntervalSince(state.lastProgressSentAt)
+    let complete = state.expectedSize > 0 && state.bytesReceived >= state.expectedSize
+    guard complete || byteDelta >= importProgressEventMinBytes || elapsed >= importProgressEventMinInterval else {
+      return false
+    }
+    state.lastProgressSentAt = now
+    state.lastProgressBytes = state.bytesReceived
+    return true
+  }
+
+  private func shouldEmitRealtimeProgress(_ state: ActiveRealtimeImport) -> Bool {
+    let now = Date()
+    let byteDelta = state.bytesReceived - state.lastProgressBytes
+    let elapsed = now.timeIntervalSince(state.lastProgressSentAt)
+    guard byteDelta >= realtimeProgressEventMinBytes || elapsed >= realtimeProgressEventMinInterval else {
+      return false
+    }
+    state.lastProgressSentAt = now
+    state.lastProgressBytes = state.bytesReceived
+    return true
   }
 
   private func importProgressPayload(phase: String) -> [String: Any] {
@@ -1200,6 +1307,21 @@ public class OrbitRecorderDeviceModule: Module {
     ]
   }
 
+  private func emitFrameEvent(direction: String, frame: [UInt8], payload: [UInt8], crcValid: Bool?) {
+    guard frameDebugEnabled else { return }
+    var event: [String: Any] = [
+      "direction": direction,
+      "frameHex": hexString(frame),
+      "payloadHex": hexString(payload),
+      "type": Int(payload.first ?? 0),
+      "command": payload.count > 1 ? Int(payload[1]) : NSNull()
+    ]
+    if let crcValid {
+      event["crcValid"] = crcValid
+    }
+    emitEvent("onFrame", event)
+  }
+
   private func realtimeStartPayload(state: ActiveRealtimeImport) -> [String: Any] {
     [
       "uri": state.outputURL.absoluteString,
@@ -1211,7 +1333,8 @@ public class OrbitRecorderDeviceModule: Module {
       "success": true,
       "startedAt": isoString(state.startedAt),
       "endedAt": NSNull(),
-      "chunksReceived": state.chunksReceived
+      "chunksReceived": state.chunksReceived,
+      "maxChunkBytes": state.maxChunkBytes
     ]
   }
 
@@ -1238,7 +1361,8 @@ public class OrbitRecorderDeviceModule: Module {
       "success": success,
       "startedAt": isoString(state.startedAt),
       "endedAt": isoString(endedAt),
-      "chunksReceived": state.chunksReceived
+      "chunksReceived": state.chunksReceived,
+      "maxChunkBytes": state.maxChunkBytes
     ]
   }
 
@@ -1435,16 +1559,23 @@ public class OrbitRecorderDeviceModule: Module {
       | (UInt32(payload[offset + 3]) << 24)
   }
 
-  private func crc16Xmodem(_ bytes: [UInt8]) -> UInt16 {
+  private func crc16Xmodem<S: Sequence>(lengthLow: UInt8, lengthHigh: UInt8, payload: S) -> UInt16 where S.Element == UInt8 {
     var crc: UInt16 = 0
-    for byte in bytes {
-      crc ^= UInt16(byte) << 8
-      for _ in 0..<8 {
-        if (crc & 0x8000) != 0 {
-          crc = (crc &<< 1) ^ 0x1021
-        } else {
-          crc = crc &<< 1
-        }
+    crc = crc16XmodemUpdate(crc, byte: lengthLow)
+    crc = crc16XmodemUpdate(crc, byte: lengthHigh)
+    for byte in payload {
+      crc = crc16XmodemUpdate(crc, byte: byte)
+    }
+    return crc
+  }
+
+  private func crc16XmodemUpdate(_ current: UInt16, byte: UInt8) -> UInt16 {
+    var crc = current ^ (UInt16(byte) << 8)
+    for _ in 0..<8 {
+      if (crc & 0x8000) != 0 {
+        crc = (crc &<< 1) ^ 0x1021
+      } else {
+        crc = crc &<< 1
       }
     }
     return crc
@@ -1565,11 +1696,17 @@ public class OrbitRecorderDeviceModule: Module {
   }
 
   private func emitConnectionState() {
-    sendEvent("onConnectionState", statePayload())
+    emitEvent("onConnectionState", statePayload())
   }
 
   private func emitError(_ error: Error) {
-    sendEvent("onError", ["message": error.localizedDescription])
+    emitEvent("onError", ["message": error.localizedDescription])
+  }
+
+  private func emitEvent(_ name: String, _ payload: [String: Any]) {
+    DispatchQueue.main.async { [weak self] in
+      self?.sendEvent(name, payload)
+    }
   }
 
   private func pendingKey(type: UInt8, command: UInt8) -> String {
@@ -1578,7 +1715,7 @@ public class OrbitRecorderDeviceModule: Module {
 
   private func scheduleTimeout(after seconds: TimeInterval, _ block: @escaping () -> Void) -> DispatchWorkItem {
     let item = DispatchWorkItem(block: block)
-    DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
+    bluetoothQueue.asyncAfter(deadline: .now() + seconds, execute: item)
     return item
   }
 
