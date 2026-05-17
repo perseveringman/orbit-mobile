@@ -27,9 +27,9 @@ Orbit Mobile 的边界是 Capture 前哨，不是桌面端 Orbit 的小屏复刻
 - Markdown Capture 默认作为 app 启动页面，支持文字、图片、文件、短录音，但只提供 capture-grade Markdown composer，不提供桌面级 Markdown 编辑能力。
 - Recording Session 默认显示“时间点”页签，主按钮是“标记此刻”。时间点一旦创建就固定 timestamp；笔记、拍照、图片、文件都锚定到该 timestamp。
 - Recording Session 的补充动作必须放在“正在编辑 <timestamp>”的当前标记面板内；主按钮仍保持“标记此刻”，但“写笔记 / 拍照 / 图片 / 文件”不能作为全局并列动作出现。
-- iPhone 麦克风和 X1 录音卡都必须进入同一套 Recording Session 页面，减少用户认知负担；X1 BLE 协议页保留为通信测试/维护入口。
+- iPhone 麦克风和 X1 录音卡都必须进入同一套 Recording Session 页面，减少用户认知负担；X1 设备详情页负责连接状态、设备文件导入和删除，BLE 协议页只保留为通信测试/维护入口。
 - 录音过程附件必须随 recording capture 一起本地原子落盘，不能先变成独立 capture 再事后关联。
-- X1 录音卡保留协议测试页面，但用户入口归入录音列表的设备卡；X1 导入和 iPhone 录音都进入同一套 recording capture / timeline 语义。
+- X1 录音卡的普通用户入口归入录音列表的设备卡；X1 导入和 iPhone 录音都进入同一套 recording capture / timeline 语义，协议测试页面留在次级调试路由。
 - 两个模式都不能绕过 Layer 2 本地原子写入。iCloud、AI、Mac ingest 都是后续异步流程。
 
 ## Rationale

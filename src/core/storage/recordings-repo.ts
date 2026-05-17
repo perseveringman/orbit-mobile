@@ -77,6 +77,42 @@ export async function updateTitle(db: SQLiteDatabaseLike, id: string, title: str
   await db.runAsync(`UPDATE recordings SET title = ? WHERE id = ?`, [title, id]);
 }
 
+export async function updateFinalTranscriptionState(
+  db: SQLiteDatabaseLike,
+  id: string,
+  patch: {
+    final_state: RecordingFinalState;
+    final_provider?: string | null;
+    final_attempts?: number;
+    final_last_error?: string | null;
+    final_done_at?: string | null;
+    language_hints?: string[];
+    speaker_count?: number | null;
+  },
+): Promise<void> {
+  await db.runAsync(
+    `UPDATE recordings
+     SET final_state = ?,
+         final_provider = COALESCE(?, final_provider),
+         final_attempts = COALESCE(?, final_attempts),
+         final_last_error = ?,
+         final_done_at = ?,
+         language_hints = COALESCE(?, language_hints),
+         speaker_count = COALESCE(?, speaker_count)
+     WHERE id = ?`,
+    [
+      patch.final_state,
+      patch.final_provider ?? null,
+      patch.final_attempts ?? null,
+      patch.final_last_error ?? null,
+      patch.final_done_at ?? null,
+      patch.language_hints ? JSON.stringify(patch.language_hints) : null,
+      patch.speaker_count ?? null,
+      id,
+    ],
+  );
+}
+
 export async function list(db: SQLiteDatabaseLike, limit = 100): Promise<RecordingRow[]> {
   return db.getAllAsync<RecordingRow>(
     `SELECT recordings.*

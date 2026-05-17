@@ -1,6 +1,6 @@
-export type AiProvider = 'deepseek';
+export type AiProvider = 'deepseek' | 'volcengine';
 
-export type AiTaskKind = 'recording_notes';
+export type AiTaskKind = 'recording_notes' | 'recording_proofread' | 'recording_transcription';
 
 export type AiTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped';
 
@@ -26,4 +26,15 @@ export interface AiSettings {
   provider: AiProvider;
   model: string;
   baseUrl: string;
+}
+
+export interface VolcengineAsrSettings {
+  enabled: boolean;
+  autoTranscribeImported: boolean;
+  provider: 'volcengine';
+  mode: 'flash';
+  resourceId: string;
+  baseUrl: string;
+  uid: string;
+  boostingTableId: string;
 }

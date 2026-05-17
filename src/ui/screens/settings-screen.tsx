@@ -11,7 +11,14 @@ import {
   View,
 } from 'react-native';
 
-import { getDeepSeekApiKey, setDeepSeekApiKey, clearDeepSeekApiKey } from '../../core/ai/api-key';
+import {
+  clearDeepSeekApiKey,
+  clearVolcengineAsrCredentials,
+  getDeepSeekApiKey,
+  getVolcengineAsrCredentials,
+  setDeepSeekApiKey,
+  setVolcengineAsrApiKey,
+} from '../../core/ai/api-key';
 import { DeepSeekClient } from '../../core/ai/deepseek-client';
 import { runReconcile } from '../../core/reconcile/reconcile-job';
 import {
@@ -21,6 +28,12 @@ import {
   setAiEnabled,
   setAiModel,
   setImageOriginalPolicy,
+  setVolcengineAsrAutoImported,
+  setVolcengineAsrBaseUrl,
+  setVolcengineAsrBoostingTableId,
+  setVolcengineAsrEnabled,
+  setVolcengineAsrResourceId,
+  setVolcengineAsrUid,
   type AppSettings,
   type ImageOriginalPolicy,
 } from '../../core/settings/app-settings';
@@ -62,20 +75,24 @@ export function SettingsScreen(): React.ReactElement {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasAiKey, setHasAiKey] = useState(false);
+  const [hasAsrKey, setHasAsrKey] = useState(false);
   const [aiKeyInput, setAiKeyInput] = useState('');
+  const [asrKeyInput, setAsrKeyInput] = useState('');
 
   const refresh = useCallback(async () => {
     const db = await openDb();
-    const [nextSettings, nextCounts, nextCloud, key] = await Promise.all([
+    const [nextSettings, nextCounts, nextCloud, key, asrKey] = await Promise.all([
       loadAppSettings(db),
       capturesRepo.countByState(db),
       iCloudBridge.getContainerStatus(),
       getDeepSeekApiKey(),
+      getVolcengineAsrCredentials(),
     ]);
     setSettings(nextSettings);
     setCounts(nextCounts);
     setICloud(nextCloud);
     setHasAiKey(key !== null);
+    setHasAsrKey(asrKey !== null);
   }, []);
 
   useEffect(() => {
@@ -143,6 +160,30 @@ export function SettingsScreen(): React.ReactElement {
     }
   }
 
+  async function updateAsrSetting(action: 'enabled' | 'autoImported', value: boolean): Promise<void> {
+    if (!settings) return;
+    const previous = settings;
+    const next = {
+      ...settings,
+      volcengineAsr: {
+        ...settings.volcengineAsr,
+        [action === 'enabled' ? 'enabled' : 'autoTranscribeImported']: value,
+      },
+    };
+    setSettings(next);
+    try {
+      const db = await openDb();
+      if (action === 'enabled') {
+        await setVolcengineAsrEnabled(db, value);
+      } else {
+        await setVolcengineAsrAutoImported(db, value);
+      }
+    } catch (saveError) {
+      setError(errorMessage(saveError));
+      setSettings(previous);
+    }
+  }
+
   async function saveAiConfig(): Promise<void> {
     if (!settings) return;
     setBusy(true);
@@ -172,6 +213,44 @@ export function SettingsScreen(): React.ReactElement {
       setAiKeyInput('');
       await refresh();
       setMessage('DeepSeek Key 已清除');
+    } catch (removeError) {
+      setError(errorMessage(removeError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAsrConfig(): Promise<void> {
+    if (!settings) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const db = await openDb();
+      if (asrKeyInput.trim()) {
+        await setVolcengineAsrApiKey(asrKeyInput);
+        setAsrKeyInput('');
+      }
+      await setVolcengineAsrBaseUrl(db, settings.volcengineAsr.baseUrl);
+      await setVolcengineAsrResourceId(db, settings.volcengineAsr.resourceId);
+      await setVolcengineAsrUid(db, settings.volcengineAsr.uid);
+      await setVolcengineAsrBoostingTableId(db, settings.volcengineAsr.boostingTableId);
+      await refresh();
+      setMessage('火山语音识别设置已保存');
+    } catch (saveError) {
+      setError(errorMessage(saveError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeAsrKey(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      await clearVolcengineAsrCredentials();
+      setAsrKeyInput('');
+      await refresh();
+      setMessage('火山语音识别 Key 已清除');
     } catch (removeError) {
       setError(errorMessage(removeError));
     } finally {
@@ -312,6 +391,96 @@ export function SettingsScreen(): React.ReactElement {
             disabled={busy || !hasAiKey}
             label="清除 Key"
             onPress={() => void removeAiKey()}
+          />
+        </View>
+        <View style={styles.hotwordRow}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>热词列表</Text>
+            <Text style={styles.rowSub}>
+              当前 {settings.aiHotwords.length} 个，会在录音转写校对时提供给 AI。
+            </Text>
+          </View>
+          <ActionButton
+            disabled={busy}
+            label="编辑"
+            onPress={() => router.push('/hotwords')}
+          />
+        </View>
+        <View style={styles.hotwordRow}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>火山引擎语音识别</Text>
+            <Text style={styles.rowSub}>
+              导入音频、语音备忘录分享和 X1 离线文件会先保存到本机，再上传音频副本识别。
+            </Text>
+            <Text style={styles.statusLine}>Key：{hasAsrKey ? '已保存' : '未配置'}</Text>
+          </View>
+          <Switch
+            value={settings.volcengineAsr.enabled}
+            onValueChange={(value) => {
+              void updateAsrSetting('enabled', value);
+            }}
+          />
+        </View>
+        <View style={styles.row}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>导入后自动识别</Text>
+            <Text style={styles.rowSub}>识别失败只影响转写状态，不影响原始录音和同步。</Text>
+          </View>
+          <Switch
+            value={settings.volcengineAsr.autoTranscribeImported}
+            onValueChange={(value) => {
+              void updateAsrSetting('autoImported', value);
+            }}
+          />
+        </View>
+        <TextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder={hasAsrKey ? '输入新的 X-Api-Key 可替换现有 Key' : '火山 X-Api-Key'}
+          placeholderTextColor="#94a3b8"
+          secureTextEntry
+          value={asrKeyInput}
+          onChangeText={setAsrKeyInput}
+          style={styles.input}
+        />
+        <TextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={settings.volcengineAsr.baseUrl}
+          onChangeText={(baseUrl) => setSettings({
+            ...settings,
+            volcengineAsr: { ...settings.volcengineAsr, baseUrl },
+          })}
+          style={styles.input}
+        />
+        <TextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={settings.volcengineAsr.resourceId}
+          onChangeText={(resourceId) => setSettings({
+            ...settings,
+            volcengineAsr: { ...settings.volcengineAsr, resourceId },
+          })}
+          style={styles.input}
+        />
+        <TextInput
+          autoCapitalize="none"
+          autoCorrect={false}
+          placeholder="热词表 ID（可选，boosting_table_id）"
+          placeholderTextColor="#94a3b8"
+          value={settings.volcengineAsr.boostingTableId}
+          onChangeText={(boostingTableId) => setSettings({
+            ...settings,
+            volcengineAsr: { ...settings.volcengineAsr, boostingTableId },
+          })}
+          style={styles.input}
+        />
+        <View style={styles.buttonRow}>
+          <ActionButton disabled={busy} label="保存语音识别" onPress={() => void saveAsrConfig()} />
+          <ActionButton
+            disabled={busy || !hasAsrKey}
+            label="清除语音 Key"
+            onPress={() => void removeAsrKey()}
           />
         </View>
       </View>
@@ -485,8 +654,18 @@ const styles = StyleSheet.create({
   },
   buttonRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
     marginTop: 10,
+  },
+  hotwordRow: {
+    alignItems: 'center',
+    borderTopColor: '#e2e8f0',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 14,
+    paddingTop: 14,
   },
   button: {
     backgroundColor: '#111827',

@@ -48,6 +48,14 @@ export async function saveImportedX1Audio(
       transcriptText: '',
       partialProvider: 'x1-import',
       waveformSamples: [],
+      source: {
+        kind: 'x1_file',
+        device_model: 'newman-x1',
+        file_name: file.name,
+        byte_size: file.byteSize || imported.byteSize,
+        duration_ms: file.durationMs || imported.durationMs,
+        imported_at: startedAt,
+      },
     },
     {
       db,
@@ -84,6 +92,14 @@ export async function saveRealtimeX1Audio(
       transcriptText,
       partialProvider: transcriptText ? 'x1-realtime-ios-speech' : 'x1-realtime',
       waveformSamples: [],
+      source: {
+        kind: 'x1_realtime',
+        device_model: 'newman-x1',
+        file_name: imported.name,
+        byte_size: imported.byteSize,
+        duration_ms: imported.durationMs,
+        imported_at: new Date().toISOString(),
+      },
     },
     {
       db,
@@ -94,9 +110,43 @@ export async function saveRealtimeX1Audio(
   return detail;
 }
 
+export async function listImportedX1AudioFileNames(
+  options: { db?: SQLiteDatabaseLike } = {},
+): Promise<Set<string>> {
+  const db = options.db ?? (await openDb());
+  const rows = await db.getAllAsync<{ name: string }>(
+    `SELECT recording_annotations.target_id AS name
+     FROM recording_annotations
+     JOIN captures ON captures.id = recording_annotations.recording_id
+     WHERE recording_annotations.kind = ?
+       AND recording_annotations.target_id IS NOT NULL
+       AND captures.deleted_locally = 0`,
+    ['x1_import'],
+  );
+  const legacyRows = await db.getAllAsync<{ title: string }>(
+    `SELECT recordings.title AS title
+     FROM recordings
+     JOIN captures ON captures.id = recordings.id
+     WHERE recordings.partial_provider = ?
+       AND captures.deleted_locally = 0`,
+    ['x1-import'],
+  );
+  const names = rows.map((row) => row.name).filter((name) => name.length > 0);
+  for (const row of legacyRows) {
+    const inferred = inferX1FilenameFromTitle(row.title);
+    if (inferred) names.push(inferred);
+  }
+  return new Set(names);
+}
+
 function titleFromFilename(filename: string): string {
   const startedAt = startedAtFromFilename(filename);
   return recordingTimestampTitle(startedAt ? new Date(startedAt) : new Date(), 'x1');
+}
+
+function inferX1FilenameFromTitle(title: string): string | null {
+  const match = title.match(/^录音卡-(\d{14})$/);
+  return match?.[1] ? `${match[1]}.mp3` : null;
 }
 
 function audioAttachmentFilename(filename: string): string {

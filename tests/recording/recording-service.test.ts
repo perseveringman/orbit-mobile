@@ -33,6 +33,10 @@ describe('recording service', () => {
             speaker: 'S1',
             text: '我们决定先做本地录音。',
             is_final: true,
+            words: [
+              { text: '我们决定', start_ms: 1200, end_ms: 2400, confidence: 0.92 },
+              { text: '先做本地录音', start_ms: 2400, end_ms: 12_000, confidence: 0.88 },
+            ],
           },
           {
             elapsed_ms: 12_000,
@@ -66,6 +70,10 @@ describe('recording service', () => {
       end_ms: 24_000,
       text: '需要 Ryan 跟进测试。',
     });
+    expect(detail.transcript.segments[0]?.words).toEqual([
+      { text: '我们决定', start_ms: 1200, end_ms: 2400, confidence: 0.92 },
+      { text: '先做本地录音', start_ms: 2400, end_ms: 12_000, confidence: 0.88 },
+    ]);
     expect(detail.derivatives.decisions?.items?.[0]?.body).toContain('决定');
     expect(detail.derivatives.todos?.items?.[0]?.body).toContain('需要');
     expect(detail.waveform_samples).toEqual([0.1, 0.4, 0.8, 0.2]);
@@ -100,7 +108,7 @@ describe('recording service', () => {
     const reloaded = await loadRecordingDetail(created.meta.id, { db, fs });
     const capture = await capturesRepo.get(db, created.meta.id);
     expect(metas).toHaveLength(1);
-    expect(metas[0]).toMatchObject({ title: '课堂笔记', final_state: 'done' });
+    expect(metas[0]).toMatchObject({ title: '课堂笔记', final_state: 'offline_queued' });
     expect(metas[0]?.waveform_samples).toEqual([0.2, 0.5]);
     expect(reloaded?.audio_uri).toContain('/documents/captures/');
     expect(reloaded?.audio_uri).toContain('audio.mp3');

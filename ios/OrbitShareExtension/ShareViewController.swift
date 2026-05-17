@@ -11,6 +11,7 @@ final class ShareViewController: UIViewController {
   private var sharedURL: String?
   private var sharedTitle: String?
   private var imageTempURLs: [URL] = []
+  private var audioTempURLs: [URL] = []
   private var metadataProvider: LPMetadataProvider?
 
   override func viewDidLoad() {
@@ -66,7 +67,20 @@ final class ShareViewController: UIViewController {
 
     for item in items {
       for provider in item.attachments ?? [] {
-        if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+        if provider.hasItemConformingToTypeIdentifier(UTType.audio.identifier) {
+          group.enter()
+          provider.loadFileRepresentation(forTypeIdentifier: UTType.audio.identifier) { [weak self] url, _ in
+            defer { group.leave() }
+            guard let url else { return }
+            let target = FileManager.default.temporaryDirectory
+              .appendingPathComponent(UUID().uuidString)
+              .appendingPathExtension(url.pathExtension.isEmpty ? "m4a" : url.pathExtension)
+            try? FileManager.default.copyItem(at: url, to: target)
+            self?.itemLock.lock()
+            self?.audioTempURLs.append(target)
+            self?.itemLock.unlock()
+          }
+        } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
           group.enter()
           provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { [weak self] item, _ in
             defer { group.leave() }
@@ -114,7 +128,8 @@ final class ShareViewController: UIViewController {
     group.notify(queue: .main) { [weak self] in
       guard let self else { return }
       self.textView.text = self.sharedText.isEmpty ? (self.sharedTitle ?? "") : self.sharedText
-      self.statusLabel.text = self.imageTempURLs.isEmpty ? "Ready" : "\(self.imageTempURLs.count) image(s) attached"
+      let attachmentCount = self.imageTempURLs.count + self.audioTempURLs.count
+      self.statusLabel.text = attachmentCount == 0 ? "Ready" : "\(attachmentCount) attachment(s) ready"
     }
   }
 
@@ -143,6 +158,12 @@ final class ShareViewController: UIViewController {
     try FileManager.default.createDirectory(at: attachmentsDir, withIntermediateDirectories: true)
 
     var attachments: [[String: String]] = []
+    for (index, source) in audioTempURLs.enumerated() {
+      let ext = source.pathExtension.isEmpty ? "m4a" : source.pathExtension
+      let filename = "audio-\(index + 1).\(ext)"
+      try FileManager.default.copyItem(at: source, to: attachmentsDir.appendingPathComponent(filename))
+      attachments.append(["type": "audio", "filename": filename, "mime": mimeType(forAudioExtension: ext)])
+    }
     for (index, source) in imageTempURLs.enumerated() {
       let ext = source.pathExtension.isEmpty ? "jpg" : source.pathExtension
       let filename = "photo-\(index + 1).\(ext)"
@@ -210,6 +231,21 @@ final class ShareViewController: UIViewController {
       return "x_post"
     default:
       return "generic_url"
+    }
+  }
+
+  private func mimeType(forAudioExtension ext: String) -> String {
+    switch ext.lowercased() {
+    case "m4a", "mp4":
+      return "audio/mp4"
+    case "wav":
+      return "audio/wav"
+    case "ogg", "opus":
+      return "audio/ogg"
+    case "aac":
+      return "audio/aac"
+    default:
+      return "audio/mpeg"
     }
   }
 

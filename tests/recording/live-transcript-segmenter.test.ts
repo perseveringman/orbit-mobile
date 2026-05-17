@@ -41,4 +41,76 @@ describe('live transcript segmenter', () => {
     ]);
     expect(segments[0]?.is_final).toBe(true);
   });
+
+  it('keeps the silent gap out of adjacent segment timestamps', () => {
+    const state = createLiveTranscriptSegmentationState();
+    updateLiveTranscriptSegments(state, {
+      transcript: '第一段讨论本地优先',
+      elapsedMs: 7000,
+    });
+    updateLiveTranscriptSegments(state, {
+      transcript: '第一段讨论本地优先 第二段开始',
+      elapsedMs: 15000,
+    });
+    const segments = updateLiveTranscriptSegments(state, {
+      transcript: '第一段讨论本地优先 第二段开始讨论 X1',
+      elapsedMs: 18000,
+    });
+
+    expect(segments[0]).toMatchObject({
+      start_ms: 0,
+      end_ms: 7000,
+      text: '第一段讨论本地优先',
+    });
+    expect(segments[1]).toMatchObject({
+      start_ms: 15000,
+      end_ms: 18000,
+      text: '第二段开始讨论 X1',
+    });
+  });
+
+  it('uses Apple Speech segment timestamps when available', () => {
+    const state = createLiveTranscriptSegmentationState();
+    const segments = updateLiveTranscriptSegments(state, {
+      transcript: '第一段讨论本地优先。第二段开始讨论 X1。',
+      elapsedMs: 18000,
+      speechSegments: [
+        { text: '第一段讨论本地优先', start_ms: 0, end_ms: 7000, confidence: 0.91 },
+        { text: '第二段开始讨论 X1', start_ms: 15000, end_ms: 18000, confidence: 0.86 },
+      ],
+    });
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({
+      start_ms: 0,
+      end_ms: 7000,
+      text: '第一段讨论本地优先。',
+      words: [{ text: '第一段讨论本地优先', start_ms: 0, end_ms: 7000, confidence: 0.91 }],
+    });
+    expect(segments[1]).toMatchObject({
+      start_ms: 15000,
+      end_ms: 18000,
+      text: '第二段开始讨论 X1。',
+      words: [{ text: '第二段开始讨论 X1', start_ms: 15000, end_ms: 18000, confidence: 0.86 }],
+    });
+  });
+
+  it('falls back when native speech segments do not fully align with a chunk', () => {
+    const state = createLiveTranscriptSegmentationState();
+    const segments = updateLiveTranscriptSegments(state, {
+      transcript: 'hello world.',
+      elapsedMs: 10000,
+      speechSegments: [
+        { text: 'hello', start_ms: 1000, end_ms: 2000 },
+        { text: 'oops', start_ms: 5000, end_ms: 6000 },
+      ],
+    });
+
+    expect(segments[0]).toMatchObject({
+      start_ms: 0,
+      end_ms: 10000,
+      text: 'hello world.',
+    });
+    expect(segments[0]?.words).toBeUndefined();
+  });
 });

@@ -58,6 +58,7 @@ import {
   addTranscriptionListener,
   start as startSpeechRecognition,
   stop as stopSpeechRecognition,
+  type TranscriptionSegment,
 } from 'orbit-speech-recognition';
 
 import {
@@ -77,6 +78,7 @@ import { pickFiles, sanitizeAttachmentFilename } from '../../../core/file/picker
 import { pickImages, takePhoto, type PickedImage } from '../../../core/image/picker';
 import {
   createLiveTranscriptSegmentationState,
+  type LiveTranscriptSpeechSegment,
   updateLiveTranscriptSegments,
 } from '../../../core/recording/live-transcript-segmenter';
 import { createRecordingCapture, type LivePartialInput } from '../../../core/recording/recording-service';
@@ -256,6 +258,7 @@ export function RecordingComposerScreen({
             transcript: state.transcript,
             elapsedMs: Math.max(0, Date.now() - startedMsRef.current),
             isFinal: state.isFinal === true,
+            speechSegments: toLiveSpeechSegments(state.segments),
           });
         });
         transcriptionRef.current = session;
@@ -328,6 +331,7 @@ export function RecordingComposerScreen({
             transcript: event.transcript,
             elapsedMs: Math.max(0, Date.now() - startedMsRef.current),
             isFinal: event.isFinal,
+            speechSegments: toLiveSpeechSegments(event.segments),
           });
         }),
         addTranscriptionErrorListener((event) => {
@@ -423,15 +427,18 @@ export function RecordingComposerScreen({
     transcript,
     elapsedMs,
     isFinal,
+    speechSegments,
   }: {
     transcript: string;
     elapsedMs: number;
     isFinal?: boolean;
+    speechSegments?: LiveTranscriptSpeechSegment[];
   }): void {
     const segments = updateLiveTranscriptSegments(transcriptSegmentationRef.current, {
       transcript,
       elapsedMs,
       isFinal,
+      speechSegments,
     });
     if (segments.length === 0) return;
     transcriptTextRef.current = segments.map((segment) => segment.text).join(' ');
@@ -441,6 +448,7 @@ export function RecordingComposerScreen({
       speaker: FALLBACK_SPEAKER.id,
       text: segment.text,
       is_final: segment.is_final,
+      words: segment.words,
     }));
     setPartials(segments.map((segment) => ({
       ts: segment.start_ms,
@@ -1259,21 +1267,47 @@ function SourceRow({ label, value }: { label: string; value: string }): React.Re
 }
 
 function buildLiveOutline(partials: PartialLine[]): Array<{ ts: number; title: string }> {
-  const latest = partials.map((partial) => partial.text).join(' ').trim();
-  if (!latest) return [];
-  const sentences = latest.match(/[^。！？.!?\n]+[。！？.!?]?/g) ?? [latest];
-  return sentences
-    .map((sentence) => sentence.trim())
-    .filter(Boolean)
+  return partials
+    .filter((partial) => partial.text.trim().length > 0)
     .slice(-5)
-    .map((sentence, index) => ({
-      ts: partials.at(-1)?.ts ?? 0,
-      title: sentence.length > 34 ? `${sentence.slice(0, 34)}...` : sentence || `片段 ${index + 1}`,
-    }));
+    .map((partial, index) => {
+      const title = partial.text.trim();
+      return {
+        ts: partial.ts,
+        title: title.length > 34 ? `${title.slice(0, 34)}...` : title || `片段 ${index + 1}`,
+      };
+    });
 }
 
 function currentElapsedMs(startedMs: number): number {
   return Math.max(0, Date.now() - startedMs);
+}
+
+function toLiveSpeechSegments(
+  segments: TranscriptionSegment[] | undefined,
+): LiveTranscriptSpeechSegment[] | undefined {
+  const mapped = (segments ?? [])
+    .map((segment): LiveTranscriptSpeechSegment | null => {
+      const startMs = finiteNumber(segment.startMs);
+      const endMs = finiteNumber(segment.endMs);
+      const text = segment.text.trim();
+      if (!text || startMs === null || endMs === null) return null;
+      const mappedSegment: LiveTranscriptSpeechSegment = {
+        text,
+        start_ms: startMs,
+        end_ms: Math.max(startMs, endMs),
+      };
+      if (typeof segment.confidence === 'number') {
+        mappedSegment.confidence = segment.confidence;
+      }
+      return mappedSegment;
+    })
+    .filter((segment): segment is LiveTranscriptSpeechSegment => segment !== null);
+  return mapped.length > 0 ? mapped : undefined;
+}
+
+function finiteNumber(value: number | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function uniqueAttachmentFilename(filename: string, seq: number): string {

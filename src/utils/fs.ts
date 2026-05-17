@@ -27,6 +27,7 @@ export interface FileSystemAdapter {
   ensureDir(path: string): Promise<void>;
   writeString(path: string, contents: string): Promise<void>;
   readString(path: string): Promise<string>;
+  readBase64(path: string): Promise<string>;
   copy(from: string, to: string): Promise<void>;
   move(from: string, to: string): Promise<void>;
   delete(path: string, opts?: { idempotent?: boolean }): Promise<void>;
@@ -85,6 +86,12 @@ export async function readString(path: string): Promise<string> {
   });
 }
 
+export async function readBase64(path: string): Promise<string> {
+  return FileSystem.readAsStringAsync(path, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+}
+
 export async function fsync(path: string): Promise<void> {
   await getDurableFs().fsync(path);
 }
@@ -103,6 +110,7 @@ export const expoFileSystem: FileSystemAdapter = {
   ensureDir,
   writeString,
   readString,
+  readBase64,
   copy: (from, to) => FileSystem.copyAsync({ from, to }),
   move: (from, to) => FileSystem.moveAsync({ from, to }),
   delete: (path, opts) => FileSystem.deleteAsync(path, { idempotent: opts?.idempotent ?? false }),

@@ -3,7 +3,7 @@
     "name": "Orbit Mobile",
     "slug": "orbit-mobile",
     "scheme": "orbit-mobile",
-    "version": "0.0.0",
+    "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -54,6 +54,13 @@
       "expo-router",
       "expo-sqlite",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "371314e9-4ff3-423b-b20c-ad3f38cb6959"
+      }
+    },
+    "owner": "yanbob"
   }
 }

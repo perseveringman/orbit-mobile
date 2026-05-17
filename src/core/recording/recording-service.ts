@@ -1,9 +1,15 @@
 import { createCapture } from '../capture/atomic-write';
-import { enqueueRecordingNotesAiTask } from '../ai/worker';
+import {
+  enqueueRecordingNotesAiTask,
+  enqueueRecordingProofreadAiTask,
+  enqueueRecordingTranscriptionAiTask,
+} from '../ai/worker';
 import { validateManifest } from '../capture/manifest';
 import type { CaptureAttachment, CaptureManifest } from '../capture/types';
+import type { ShareContext } from '../share/platform';
 import * as capturesRepo from '../storage/captures-repo';
 import * as eventsRepo from '../storage/events-repo';
+import * as annotationsRepo from '../storage/recording-annotations-repo';
 import * as recordingsRepo from '../storage/recordings-repo';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
 import { expoFileSystem, joinPath, type FileSystemAdapter } from '../../utils/fs';
@@ -20,6 +26,7 @@ import type {
   RecordingMeta,
   RecordingSpeaker,
   TranscriptSegment,
+  TranscriptWord,
 } from '../../types/recording';
 
 const DEFAULT_SPEAKER: RecordingSpeaker = {
@@ -34,6 +41,7 @@ export interface LivePartialInput {
   text: string;
   speaker?: string;
   is_final?: boolean;
+  words?: TranscriptWord[];
 }
 
 interface WaveformPayload {
@@ -57,12 +65,26 @@ export interface CreateRecordingInput {
   partialProvider: string;
   waveformSamples?: number[];
   sessionAttachments?: CaptureAttachment[];
+  source?: RecordingSourceMetadata;
+  shareContext?: ShareContext | Record<string, unknown> | null;
+}
+
+export interface RecordingSourceMetadata {
+  kind: 'x1_file' | 'x1_realtime' | 'file_import' | 'share_audio';
+  device_model?: string;
+  device_name?: string;
+  file_name?: string;
+  byte_size?: number;
+  duration_ms?: number;
+  imported_at?: string;
 }
 
 export interface RecordingServiceOptions {
   db?: SQLiteDatabaseLike;
   fs?: FileSystemAdapter;
   sourceVersion?: string;
+  id?: string;
+  txnId?: string;
 }
 
 export async function createRecordingCapture(
@@ -75,6 +97,8 @@ export async function createRecordingCapture(
   const now = Number.isNaN(startedAt.getTime()) ? new Date() : startedAt;
   const safeTitle = input.title.trim() || defaultTitle(now);
   const transcript = buildFinalTranscript(input);
+  const needsCloudTranscription = shouldStartWithCloudTranscription(input, transcript);
+  const finalProvider = needsCloudTranscription ? 'pending-cloud-asr' : 'local-live-transcript';
   const outline = buildOutline(transcript);
   const derivatives = buildDerivatives(transcript, outline, now);
   const tmpDir = joinPath(fs.documentDirectory, 'tmp', `recording-${generateSessionId()}`);
@@ -172,17 +196,21 @@ export async function createRecordingCapture(
         language_hints: input.languageHints,
         speakers: transcript.speakers,
         partial_provider: input.partialProvider,
-        final_provider: 'local-live-transcript',
+        final_provider: finalProvider,
         diarization_provider: null,
+        source: input.source ? { ...input.source } : undefined,
       },
       derivatives: derivativeRefs,
+      shareContext: input.shareContext ?? null,
       inputStartedAt: input.startedAt,
     },
     {
       db,
       fs,
+      id: options.id,
+      txnId: options.txnId,
       sourceVersion: options.sourceVersion ?? '0.0.0',
-      afterCaptureInsert: async ({ db: txn, id }) => {
+      afterCaptureInsert: async ({ db: txn, id, createdAt }) => {
         await recordingsRepo.insert(txn, {
           id,
           title: safeTitle,
@@ -190,12 +218,21 @@ export async function createRecordingCapture(
           language_hints: input.languageHints,
           speaker_count: transcript.speakers.length,
           partial_state: input.partialProvider === 'unavailable' ? 'failed' : 'finished',
-          final_state: 'done',
+          final_state: needsCloudTranscription ? 'offline_queued' : 'done',
           partial_provider: input.partialProvider,
-          final_provider: 'local-live-transcript',
-          final_done_at: new Date().toISOString(),
+          final_provider: needsCloudTranscription ? null : finalProvider,
+          final_done_at: needsCloudTranscription ? null : new Date().toISOString(),
           created_at: input.startedAt,
         });
+        if (input.source?.kind === 'x1_file' && input.source.file_name) {
+          await annotationsRepo.upsert(txn, {
+            recording_id: id,
+            kind: 'x1_import',
+            target_id: input.source.file_name,
+            payload: { ...input.source },
+            now: createdAt,
+          });
+        }
       },
     },
   );
@@ -205,7 +242,9 @@ export async function createRecordingCapture(
   if (!detail) {
     throw new Error(`recording.create_missing_detail:${result.id}`);
   }
+  await enqueueRecordingTranscriptionAiTask(db, result.id, { detail, fs }).catch(() => undefined);
   await enqueueRecordingNotesAiTask(db, result.id, { detail, fs }).catch(() => undefined);
+  await enqueueRecordingProofreadAiTask(db, result.id, { detail, fs }).catch(() => undefined);
   return detail;
 }
 
@@ -309,6 +348,22 @@ function buildFinalTranscript(input: CreateRecordingInput): FinalTranscript {
   };
 }
 
+function shouldStartWithCloudTranscription(
+  input: CreateRecordingInput,
+  transcript: FinalTranscript,
+): boolean {
+  const providerNeedsAsr = [
+    'x1-import',
+    'x1-realtime',
+    'audio-import',
+    'share-audio-import',
+    'unavailable',
+  ].includes(input.partialProvider);
+  if (!providerNeedsAsr) return false;
+  const text = transcript.segments.map((segment) => segment.text).join(' ').trim();
+  return text.length === 0 || /暂无可用实时转写|暂无转写/.test(text);
+}
+
 function buildSegmentsFromPartials(input: CreateRecordingInput): TranscriptSegment[] {
   const sanitized = input.partials
     .map((partial) => ({
@@ -316,6 +371,7 @@ function buildSegmentsFromPartials(input: CreateRecordingInput): TranscriptSegme
       elapsed_ms: clampMs(partial.elapsed_ms, input.durationMs),
       end_ms: partial.end_ms === undefined ? undefined : clampMs(partial.end_ms, input.durationMs),
       text: normalizeTranscript(partial.text),
+      words: sanitizeTranscriptWords(partial.words, input.durationMs),
     }))
     .filter((partial) => partial.text.length > 0);
 
@@ -333,8 +389,32 @@ function buildSegmentsFromPartials(input: CreateRecordingInput): TranscriptSegme
       confidence: input.partialProvider === 'ios-speech' || input.partialProvider === 'x1-realtime-ios-speech'
         ? 0.75
         : undefined,
+      words: partial.words.length > 0 ? partial.words : undefined,
     };
   });
+}
+
+function sanitizeTranscriptWords(
+  words: TranscriptWord[] | undefined,
+  durationMs: number,
+): TranscriptWord[] {
+  return (words ?? [])
+    .map((word): TranscriptWord | null => {
+      const text = normalizeTranscript(word.text);
+      if (!text) return null;
+      const startMs = clampMs(word.start_ms, durationMs);
+      const endMs = Math.max(startMs, clampMs(word.end_ms, durationMs));
+      const sanitized: TranscriptWord = {
+        text,
+        start_ms: startMs,
+        end_ms: endMs,
+      };
+      if (typeof word.confidence === 'number') {
+        sanitized.confidence = word.confidence;
+      }
+      return sanitized;
+    })
+    .filter((word): word is TranscriptWord => word !== null);
 }
 
 function buildOutline(transcript: FinalTranscript): OutlineItem[] {
@@ -510,6 +590,7 @@ function serializePartials(partials: LivePartialInput[]): string {
         speaker: partial.speaker ?? DEFAULT_SPEAKER.id,
         text: partial.text,
         isFinal: partial.is_final ?? false,
+        words: partial.words,
       }),
     )
     .join('\n');

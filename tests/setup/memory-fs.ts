@@ -44,6 +44,11 @@ export class MemoryFileSystem implements FileSystemAdapter {
     return Promise.resolve(entry.contents);
   }
 
+  async readBase64(path: string): Promise<string> {
+    const contents = await this.readString(path);
+    return Buffer.from(contents, 'utf8').toString('base64');
+  }
+
   async copy(from: string, to: string): Promise<void> {
     const entry = this.entries.get(normalize(from));
     if (!entry) {

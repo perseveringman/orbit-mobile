@@ -7,7 +7,9 @@ export type RecordingAnnotationKind =
   | 'bookmark'
   | 'session_event'
   | 'todo_state'
-  | 'custom_derivative';
+  | 'custom_derivative'
+  | 'x1_import'
+  | 'transcript_correction';
 
 export interface RecordingAnnotationRow {
   id: string;

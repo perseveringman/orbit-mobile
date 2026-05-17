@@ -2,13 +2,20 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_AI_SETTINGS,
+  DEFAULT_VOLCENGINE_ASR_SETTINGS,
   loadAppSettings,
   setAiAutoGenerate,
   setAiBaseUrl,
   setAiEnabled,
+  setAiHotwords,
   setAiModel,
   setImageOriginalPolicy,
   setKeepImageOriginal,
+  setVolcengineAsrAutoImported,
+  setVolcengineAsrBaseUrl,
+  setVolcengineAsrBoostingTableId,
+  setVolcengineAsrEnabled,
+  setVolcengineAsrResourceId,
 } from '@/core/settings/app-settings';
 import { createMigratedTestDb } from '../setup/in-memory-db';
 
@@ -20,6 +27,8 @@ describe('app settings', () => {
       keepImageOriginal: true,
       imageOriginalPolicy: 'always_original',
       ai: DEFAULT_AI_SETTINGS,
+      aiHotwords: [],
+      volcengineAsr: DEFAULT_VOLCENGINE_ASR_SETTINGS,
     });
 
     await setKeepImageOriginal(db, false);
@@ -61,6 +70,38 @@ describe('app settings', () => {
         provider: 'deepseek',
         model: 'deepseek-v4-pro',
         baseUrl: 'https://example.com',
+      },
+    });
+  });
+
+  it('persists normalized AI hotwords in SQLite', async () => {
+    const db = await createMigratedTestDb();
+
+    await setAiHotwords(db, [' Orbit ', 'orbit', '纽曼   X1', '', 'DeepSeek']);
+
+    await expect(loadAppSettings(db)).resolves.toMatchObject({
+      aiHotwords: ['Orbit', '纽曼 X1', 'DeepSeek'],
+    });
+  });
+
+  it('persists non-sensitive Volcengine ASR settings in SQLite', async () => {
+    const db = await createMigratedTestDb();
+
+    await setVolcengineAsrEnabled(db, false);
+    await setVolcengineAsrAutoImported(db, false);
+    await setVolcengineAsrBaseUrl(db, 'https://example.com/');
+    await setVolcengineAsrResourceId(db, 'volc.test');
+    await setVolcengineAsrBoostingTableId(db, 'boost-123');
+
+    await expect(loadAppSettings(db)).resolves.toMatchObject({
+      volcengineAsr: {
+        enabled: false,
+        autoTranscribeImported: false,
+        provider: 'volcengine',
+        mode: 'flash',
+        baseUrl: 'https://example.com',
+        resourceId: 'volc.test',
+        boostingTableId: 'boost-123',
       },
     });
   });

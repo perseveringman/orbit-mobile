@@ -64,9 +64,9 @@ import { writeWidgetSnapshot } from '../../../core/widget/snapshot';
 import { returnTo } from '../../navigation/back';
 import { formatDurationLabel, formatTimestamp } from '../format';
 import { colors, radius, spacing } from '../theme';
+import { formatBytes, formatX1StorageUsage, isAutoConnectX1Device } from '../x1-device';
 
 const MAX_REALTIME_LOGS = 80;
-const X1_SERVICE_UUID = '0000ae20-0000-1000-8000-00805f9b34fb';
 
 type RealtimeLogKind = 'CMD' | 'ERR' | 'RX' | 'TX';
 
@@ -287,8 +287,12 @@ export function X1RecorderImportScreen(): React.ReactElement {
       setVersion(event.version);
       return;
     }
-    if (event.kind === 'storage' && typeof event.freeBytes === 'number' && typeof event.totalBytes === 'number') {
-      setStorage(`${formatBytes(event.freeBytes)} 可用 / ${formatBytes(event.totalBytes)}`);
+    if (event.kind === 'storage' && typeof event.usedBytes === 'number' && typeof event.totalBytes === 'number') {
+      setStorage(formatX1StorageUsage({
+        freeBytes: typeof event.freeBytes === 'number' ? event.freeBytes : Math.max(0, event.totalBytes - event.usedBytes),
+        totalBytes: event.totalBytes,
+        usedBytes: event.usedBytes,
+      }));
       return;
     }
     if (isDeviceIdentity(event)) {
@@ -336,7 +340,7 @@ export function X1RecorderImportScreen(): React.ReactElement {
     debugX1('status', { battery: nextBattery, identity: nextIdentity, settings: nextSettings, storage: nextStorage, version: nextVersion });
     setBattery(nextBattery);
     setVersion(nextVersion);
-    setStorage(nextStorage ? `${formatBytes(nextStorage.freeBytes)} 可用 / ${formatBytes(nextStorage.totalBytes)}` : null);
+    setStorage(nextStorage ? formatX1StorageUsage(nextStorage) : null);
     setIdentity(nextIdentity);
     setSettings(nextSettings);
   }
@@ -501,7 +505,7 @@ export function X1RecorderImportScreen(): React.ReactElement {
       <View style={styles.header}>
         <Pressable
           accessibilityRole="button"
-          onPress={() => returnTo(router, '/recording')}
+          onPress={() => returnTo(router, '/recording/x1')}
         >
           <Text style={styles.back}>← 录音</Text>
         </Pressable>
@@ -977,25 +981,6 @@ function isDeviceFlags(event: X1DeviceStatusEvent): event is X1DeviceFlags {
     && typeof event.isImporting === 'boolean'
     && typeof event.isPlaybackPaused === 'boolean'
     && typeof event.isScanningBusy === 'boolean';
-}
-
-function isAutoConnectX1Device(device: X1DiscoveredDevice): boolean {
-  const advertisedServices = device.advertisedServices.map((service) => service.toLowerCase());
-  if (advertisedServices.includes(X1_SERVICE_UUID)) return true;
-  const name = device.name.toLowerCase();
-  return name.includes('录音笔') || name.includes('newman') || name.includes('niuman');
-}
-
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit] ?? 'B'}`;
 }
 
 function formatDeviceFlags(flags: X1DeviceFlags): string {

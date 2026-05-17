@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { importShareInbox } from '@/core/share/share-inbox';
 import * as capturesRepo from '@/core/storage/captures-repo';
 import { setValue } from '@/core/storage/device-info';
+import * as recordingsRepo from '@/core/storage/recordings-repo';
 import { joinPath } from '@/utils/fs';
 import { createMigratedTestDb } from '../setup/in-memory-db';
 import { MemoryFileSystem } from '../setup/memory-fs';
@@ -73,6 +74,40 @@ describe('share inbox import', () => {
       source_title: '微信文章标题',
       enrichment_state: 'pending',
     });
+  });
+
+  it('imports shared audio as a recording capture queued for ASR', async () => {
+    const db = await createMigratedTestDb();
+    const fs = new MemoryFileSystem();
+    await setValue(db, 'device_id', 'device-1');
+    const shareDir = '/app-group/share-inbox/mob_cap_voice_memo';
+    await fs.ensureDir(joinPath(shareDir, 'attachments'));
+    await fs.writeString(joinPath(shareDir, 'attachments', 'audio-1.m4a'), 'audio-bytes');
+    await fs.writeString(
+      joinPath(shareDir, 'payload.json'),
+      JSON.stringify({
+        schema_version: 1,
+        id: 'mob_cap_voice_memo',
+        content: '',
+        title: 'Voice Memo',
+        url: null,
+        attachments: [{ type: 'audio', filename: 'audio-1.m4a', mime: 'audio/mp4' }],
+      }),
+    );
+    await fs.writeString(joinPath(shareDir, '.complete'), '');
+
+    await expect(importShareInbox({ db, fs, sharedRoot: '/app-group' })).resolves.toBe(1);
+    await expect(capturesRepo.get(db, 'mob_cap_voice_memo')).resolves.toMatchObject({
+      id: 'mob_cap_voice_memo',
+      kind: 'recording',
+      has_audio: 1,
+    });
+    await expect(recordingsRepo.get(db, 'mob_cap_voice_memo')).resolves.toMatchObject({
+      title: 'Voice Memo',
+      partial_provider: 'share-audio-import',
+      final_state: 'offline_queued',
+    });
+    await expect(fs.readString('/documents/captures/mob_cap_voice_memo/audio-1.m4a')).resolves.toBe('audio-bytes');
   });
 
   it('continues importing other shares when one completed payload is invalid', async () => {

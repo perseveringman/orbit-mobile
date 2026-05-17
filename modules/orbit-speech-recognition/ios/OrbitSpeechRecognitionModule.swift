@@ -216,7 +216,8 @@ public class OrbitSpeechRecognitionModule: Module {
         self?.sendEvent("onTranscription", [
           "transcript": result.bestTranscription.formattedString,
           "isFinal": result.isFinal,
-          "source": "ios-speech"
+          "source": "ios-speech",
+          "segments": self?.transcriptionSegmentsPayload(result.bestTranscription.segments) ?? []
         ])
       }
       if let error {
@@ -245,6 +246,22 @@ public class OrbitSpeechRecognitionModule: Module {
     if deactivateSession {
       try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
       clearCaptureState()
+    }
+  }
+
+  private func transcriptionSegmentsPayload(_ segments: [SFTranscriptionSegment]) -> [[String: Any]] {
+    segments.map { segment in
+      let startMs = max(0, Int((segment.timestamp * 1000).rounded()))
+      let durationMs = max(0, Int((segment.duration * 1000).rounded()))
+      return [
+        "text": segment.substring,
+        "startMs": startMs,
+        "endMs": startMs + durationMs,
+        "durationMs": durationMs,
+        "confidence": segment.confidence,
+        "substringLocation": segment.substringRange.location,
+        "substringLength": segment.substringRange.length
+      ]
     }
   }
 

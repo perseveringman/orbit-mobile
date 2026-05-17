@@ -5,13 +5,17 @@ import {
   start,
   stop,
 } from 'orbit-speech-recognition';
+import type { TranscriptionSegment } from 'orbit-speech-recognition';
 import { isVoiceRecordingActive } from './recorder';
+
+export type LiveTranscriptionSegment = TranscriptionSegment;
 
 export interface LiveTranscriptionState {
   transcript: string;
   available: boolean;
   source: 'ios-speech' | 'unavailable';
   isFinal?: boolean;
+  segments?: LiveTranscriptionSegment[];
   reason?: string;
 }
 
@@ -78,6 +82,7 @@ function subscribeToNativeTranscription(
       available: true,
       source: event.source,
       isFinal: event.isFinal,
+      segments: event.segments,
     });
   });
   const errorSubscription = addTranscriptionErrorListener((event) => {

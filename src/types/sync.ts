@@ -17,7 +17,10 @@ export type SyncEventName =
   | 'manual_retry'
   | 'reset'
   | 'attempts_exhausted'
+  | 'ai_transcription_generated'
   | 'ai_generated'
+  | 'ai_proofread_generated'
+  | 'ai_proofread_accepted'
   | 'ai_retry'
   | 'ai_failed';
 

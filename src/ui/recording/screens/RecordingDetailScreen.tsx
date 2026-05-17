@@ -24,11 +24,23 @@ import {
 
 import { loadRecordingDetail } from '../../../core/recording/recording-service';
 import { prepareAudioPlayback } from '../../../core/audio/playback';
+import {
+  enqueueRecordingProofreadAiTask,
+  enqueueRecordingTranscriptionAiTask,
+  runAiWorkerTick,
+} from '../../../core/ai/worker';
+import {
+  acceptTranscriptCorrections,
+  listPendingTranscriptCorrections,
+} from '../../../core/ai/transcript-proofread';
 import { openDb } from '../../../core/storage/db';
+import * as aiTasksRepo from '../../../core/storage/ai-tasks-repo';
 import * as annotationsRepo from '../../../core/storage/recording-annotations-repo';
+import type { AiTaskRow } from '../../../types/ai';
 import type {
   RecordingDetail,
   RecordingSpeaker,
+  TranscriptCorrection,
   TranscriptSegment,
 } from '../../../types/recording';
 import { SegmentedTabs } from '../components/SegmentedTabs';
@@ -67,6 +79,10 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
   const [playbackRate, setPlaybackRate] = useState(1);
   const [feedback, setFeedback] = useState<Record<number, 'up' | 'down' | undefined>>({});
   const [bookmarks, setBookmarks] = useState<RecordingBookmark[]>([]);
+  const [corrections, setCorrections] = useState<TranscriptCorrection[]>([]);
+  const [proofreadTask, setProofreadTask] = useState<AiTaskRow | null>(null);
+  const [proofreadBusy, setProofreadBusy] = useState(false);
+  const [transcriptionBusy, setTranscriptionBusy] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
 
   const total = detail?.meta.duration_ms ?? 1;
@@ -83,6 +99,9 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
             void loadAnnotations(loaded.meta.id).catch((error: unknown) => {
               setLoadError(recordingErrorMessage(error));
             });
+          } else {
+            setCorrections([]);
+            setProofreadTask(null);
           }
         }
       })
@@ -119,6 +138,20 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
     }
     setFeedback(nextFeedback);
     setBookmarks(nextBookmarks);
+    setCorrections(await listPendingTranscriptCorrections(db, recordingId));
+    setProofreadTask(await aiTasksRepo.getByCapture(db, recordingId, 'recording_proofread'));
+  }
+
+  async function reloadDetail(): Promise<void> {
+    const loaded = await loadRecordingDetail(id);
+    setDetail(loaded);
+    setLoadError(loaded ? null : MISSING_RECORDING_MESSAGE);
+    if (loaded) {
+      await loadAnnotations(loaded.meta.id);
+    } else {
+      setCorrections([]);
+      setProofreadTask(null);
+    }
   }
 
   function updateFeedback(segment: TranscriptSegment, kind: 'up' | 'down'): void {
@@ -245,6 +278,56 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
     });
   }
 
+  async function runProofread(): Promise<void> {
+    if (!detail || proofreadBusy) return;
+    setProofreadBusy(true);
+    setLoadError(null);
+    try {
+      const db = await openDb();
+      await enqueueRecordingProofreadAiTask(db, detail.meta.id, { detail, force: true });
+      await runAiWorkerTick({ db, limit: 3 });
+      await reloadDetail();
+      setTab('transcript');
+    } catch (error) {
+      setLoadError(recordingErrorMessage(error));
+    } finally {
+      setProofreadBusy(false);
+    }
+  }
+
+  async function runTranscription(): Promise<void> {
+    if (!detail || transcriptionBusy) return;
+    setTranscriptionBusy(true);
+    setLoadError(null);
+    try {
+      const db = await openDb();
+      await enqueueRecordingTranscriptionAiTask(db, detail.meta.id, { detail, force: true });
+      await runAiWorkerTick({ db, limit: 1 });
+      await reloadDetail();
+      setTab('transcript');
+    } catch (error) {
+      setLoadError(recordingErrorMessage(error));
+    } finally {
+      setTranscriptionBusy(false);
+    }
+  }
+
+  async function acceptCorrections(correctionIds?: readonly string[]): Promise<void> {
+    if (proofreadBusy) return;
+    setProofreadBusy(true);
+    setLoadError(null);
+    try {
+      const db = await openDb();
+      await acceptTranscriptCorrections(db, id, correctionIds);
+      await reloadDetail();
+      setTab('transcript');
+    } catch (error) {
+      setLoadError(recordingErrorMessage(error));
+    } finally {
+      setProofreadBusy(false);
+    }
+  }
+
   if (loading) {
     return <View style={[styles.container, styles.center]} />;
   }
@@ -284,6 +367,28 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
             {detail.meta.language_hints.join(' / ')} · {detail.meta.speakers.length} 位说话人
           </Text>
         </View>
+        {detail.meta.final_state !== 'done' ? (
+          <View style={styles.transcriptionPanel}>
+            <Text style={styles.transcriptionText}>
+              原始录音已在本机保存，转写可通过火山语音识别补跑。
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={transcriptionBusy}
+              onPress={() => {
+                void runTranscription();
+              }}
+              style={({ pressed }) => [
+                styles.transcriptionBtn,
+                (pressed || transcriptionBusy) && styles.pressed,
+              ]}
+            >
+              <Text style={styles.transcriptionBtnText}>
+                {transcriptionBusy ? '识别中' : '重新识别'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.tabsRow}>
@@ -324,8 +429,20 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
             detail={detail}
             position={position}
             feedback={feedback}
+            corrections={corrections}
+            proofreadTask={proofreadTask}
+            proofreadBusy={proofreadBusy}
             onFeedback={updateFeedback}
             onBookmark={addBookmark}
+            onRunProofread={() => {
+              void runProofread();
+            }}
+            onAcceptCorrection={(correctionId) => {
+              void acceptCorrections([correctionId]);
+            }}
+            onAcceptAll={() => {
+              void acceptCorrections();
+            }}
             onJump={(ms) => {
               void jumpTo(ms);
             }}
@@ -501,15 +618,27 @@ function TranscriptTab({
   detail,
   position,
   feedback,
+  corrections,
+  proofreadTask,
+  proofreadBusy,
   onFeedback,
   onBookmark,
+  onRunProofread,
+  onAcceptCorrection,
+  onAcceptAll,
   onJump,
 }: {
   detail: RecordingDetail;
   position: number;
   feedback: Record<number, 'up' | 'down' | undefined>;
+  corrections: TranscriptCorrection[];
+  proofreadTask: AiTaskRow | null;
+  proofreadBusy: boolean;
   onFeedback: (seg: TranscriptSegment, kind: 'up' | 'down') => void;
   onBookmark: (seg: TranscriptSegment) => void;
+  onRunProofread: () => void;
+  onAcceptCorrection: (correctionId: string) => void;
+  onAcceptAll: () => void;
   onJump: (ms: number) => void;
 }): React.ReactElement {
   const speakerById = useMemo(() => {
@@ -527,6 +656,13 @@ function TranscriptTab({
   return (
     <View>
       <Text style={styles.sectionLabel}>转写 · 按说话人分段</Text>
+      <ProofreadPanel
+        corrections={corrections}
+        task={proofreadTask}
+        busy={proofreadBusy}
+        onRunProofread={onRunProofread}
+        onAcceptAll={onAcceptAll}
+      />
       {detail.transcript.segments.map((segment) => {
         const speaker = speakerById.get(segment.speaker) ?? {
           id: segment.speaker,
@@ -535,6 +671,7 @@ function TranscriptTab({
         };
         const active = position >= segment.start_ms && position < segment.end_ms;
         const fb = feedback[segment.id];
+        const segmentCorrections = corrections.filter((correction) => correction.segment_id === segment.id);
         return (
           <Pressable
             key={segment.id}
@@ -569,12 +706,144 @@ function TranscriptTab({
                 </Pressable>
               </View>
             </View>
-            <Text style={styles.segmentBody}>{segment.text}</Text>
+            <CorrectionAwareText text={segment.text} corrections={segmentCorrections} />
+            {segmentCorrections.map((correction) => (
+              <View key={correction.id} style={styles.correctionCard}>
+                <View style={styles.correctionTextBlock}>
+                  <Text style={styles.correctionTitle}>
+                    {correction.original_text} → {correction.corrected_text}
+                  </Text>
+                  <Text style={styles.correctionReason}>
+                    {correction.reason}
+                    {correction.hotword ? ` · 热词：${correction.hotword}` : ''}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={proofreadBusy}
+                  onPress={() => onAcceptCorrection(correction.id)}
+                  style={({ pressed }) => [
+                    styles.correctionAcceptBtn,
+                    (pressed || proofreadBusy) && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.correctionAcceptText}>通过</Text>
+                </Pressable>
+              </View>
+            ))}
           </Pressable>
         );
       })}
     </View>
   );
+}
+
+function ProofreadPanel({
+  corrections,
+  task,
+  busy,
+  onRunProofread,
+  onAcceptAll,
+}: {
+  corrections: TranscriptCorrection[];
+  task: AiTaskRow | null;
+  busy: boolean;
+  onRunProofread: () => void;
+  onAcceptAll: () => void;
+}): React.ReactElement {
+  const hasCorrections = corrections.length > 0;
+  return (
+    <View style={styles.proofreadPanel}>
+      <View style={styles.proofreadText}>
+        <Text style={styles.proofreadTitle}>
+          {hasCorrections ? `AI 发现 ${corrections.length} 处可校对内容` : 'AI 转写校对'}
+        </Text>
+        <Text style={styles.proofreadSub}>
+          {proofreadStatusLabel(task, hasCorrections)}
+        </Text>
+      </View>
+      {hasCorrections ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onAcceptAll}
+          style={({ pressed }) => [styles.proofreadPrimaryBtn, (pressed || busy) && styles.pressed]}
+        >
+          <Text style={styles.proofreadPrimaryText}>{busy ? '处理中' : '全部通过'}</Text>
+        </Pressable>
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={onRunProofread}
+          style={({ pressed }) => [styles.proofreadSecondaryBtn, (pressed || busy) && styles.pressed]}
+        >
+          <Text style={styles.proofreadSecondaryText}>{busy ? '校对中' : 'AI 校对'}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function CorrectionAwareText({
+  text,
+  corrections,
+}: {
+  text: string;
+  corrections: TranscriptCorrection[];
+}): React.ReactElement {
+  const chunks = correctionChunks(text, corrections);
+  return (
+    <Text style={styles.segmentBody}>
+      {chunks.map((chunk, index) => (
+        <Text
+          key={`${chunk.text}-${index}`}
+          style={chunk.highlight ? styles.correctionHighlight : undefined}
+        >
+          {chunk.text}
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+function correctionChunks(
+  text: string,
+  corrections: TranscriptCorrection[],
+): Array<{ text: string; highlight: boolean }> {
+  const spans = corrections
+    .map((correction) => {
+      const start = text.indexOf(correction.original_text);
+      return start >= 0
+        ? { start, end: start + correction.original_text.length, text: correction.original_text }
+        : null;
+    })
+    .filter((span): span is { start: number; end: number; text: string } => span !== null)
+    .sort((a, b) => a.start - b.start || b.end - a.end);
+  const chunks: Array<{ text: string; highlight: boolean }> = [];
+  let cursor = 0;
+  for (const span of spans) {
+    if (span.start < cursor) continue;
+    if (span.start > cursor) {
+      chunks.push({ text: text.slice(cursor, span.start), highlight: false });
+    }
+    chunks.push({ text: text.slice(span.start, span.end), highlight: true });
+    cursor = span.end;
+  }
+  if (cursor < text.length) {
+    chunks.push({ text: text.slice(cursor), highlight: false });
+  }
+  return chunks.length ? chunks : [{ text, highlight: false }];
+}
+
+function proofreadStatusLabel(task: AiTaskRow | null, hasCorrections: boolean): string {
+  if (hasCorrections) return '高亮处保留原转写，点通过后替换为建议文本。';
+  if (task?.status === 'queued') return '校对任务已排队。';
+  if (task?.status === 'running') return '正在校对转写。';
+  if (task?.status === 'failed') return task.last_error ?? 'AI 校对失败，可重试。';
+  if (task?.status === 'skipped') return task.last_error ?? 'AI 校对已跳过。';
+  if (task?.status === 'succeeded') return '暂未发现需要修改的转写。';
+  return '使用设置里的热词列表校对专用名词。';
 }
 
 function MarkTab({
@@ -698,6 +967,35 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontSize: 12,
     fontWeight: '600',
+  },
+  transcriptionPanel: {
+    alignItems: 'center',
+    backgroundColor: colors.warningSoft,
+    borderColor: '#fde68a',
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+    padding: 12,
+  },
+  transcriptionText: {
+    color: '#92400e',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+  },
+  transcriptionBtn: {
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  transcriptionBtnText: {
+    color: colors.bg,
+    fontSize: 12,
+    fontWeight: '900',
   },
   error: {
     color: colors.danger,
@@ -868,6 +1166,94 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 15,
     lineHeight: 23,
+  },
+  proofreadPanel: {
+    alignItems: 'center',
+    backgroundColor: colors.bgSoft,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+    padding: 12,
+  },
+  proofreadText: {
+    flex: 1,
+  },
+  proofreadTitle: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  proofreadSub: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  proofreadPrimaryBtn: {
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  proofreadPrimaryText: {
+    color: colors.bg,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  proofreadSecondaryBtn: {
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  proofreadSecondaryText: {
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  correctionHighlight: {
+    backgroundColor: colors.warningSoft,
+    color: colors.textPrimary,
+    fontWeight: '800',
+  },
+  correctionCard: {
+    alignItems: 'center',
+    backgroundColor: colors.warningSoft,
+    borderColor: '#fbbf24',
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+    padding: 10,
+  },
+  correctionTextBlock: {
+    flex: 1,
+  },
+  correctionTitle: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  correctionReason: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  correctionAcceptBtn: {
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  correctionAcceptText: {
+    color: colors.bg,
+    fontSize: 12,
+    fontWeight: '800',
   },
   markCard: {
     backgroundColor: colors.bgSoft,

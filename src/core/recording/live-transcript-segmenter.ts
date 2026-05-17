@@ -8,12 +8,26 @@ export interface LiveTranscriptSegment {
   end_ms: number;
   text: string;
   is_final: boolean;
+  words?: LiveTranscriptWord[];
+}
+
+export interface LiveTranscriptWord {
+  text: string;
+  start_ms: number;
+  end_ms: number;
+  confidence?: number;
+}
+
+export interface LiveTranscriptForcedBreak {
+  index: number;
+  previousEndMs: number;
+  nextStartMs: number;
 }
 
 export interface LiveTranscriptSegmentationState {
   previousTranscript: string;
   lastChangedAtMs: number;
-  forcedBreaks: number[];
+  forcedBreaks: LiveTranscriptForcedBreak[];
   segments: LiveTranscriptSegment[];
 }
 
@@ -21,6 +35,14 @@ export interface LiveTranscriptUpdate {
   transcript: string;
   elapsedMs: number;
   isFinal?: boolean;
+  speechSegments?: LiveTranscriptSpeechSegment[];
+}
+
+export interface LiveTranscriptSpeechSegment {
+  text: string;
+  start_ms: number;
+  end_ms: number;
+  confidence?: number;
 }
 
 export function createLiveTranscriptSegmentationState(): LiveTranscriptSegmentationState {
@@ -50,7 +72,7 @@ export function updateLiveTranscriptSegments(
   if (changed && state.previousTranscript.length > 0 && transcript.startsWith(state.previousTranscript)) {
     const gapMs = elapsedMs - state.lastChangedAtMs;
     if (gapMs >= SILENCE_BREAK_MS) {
-      addForcedBreak(state, state.previousTranscript.length);
+      addForcedBreak(state, state.previousTranscript.length, state.lastChangedAtMs, elapsedMs);
     }
   }
 
@@ -59,33 +81,200 @@ export function updateLiveTranscriptSegments(
     state.lastChangedAtMs = elapsedMs;
   }
 
-  state.forcedBreaks = state.forcedBreaks.filter((index) => index > 0 && index < transcript.length);
-  const chunks = splitTranscriptIntoChunks(transcript, state.forcedBreaks);
+  state.forcedBreaks = state.forcedBreaks.filter((breakpoint) => (
+    breakpoint.index > 0 && breakpoint.index < transcript.length
+  ));
+  const chunks = applySpeechSegmentTiming(
+    splitTranscriptIntoTimedChunks(transcript, state.forcedBreaks),
+    update.speechSegments,
+    elapsedMs,
+  );
   state.segments = assignSegmentTiming(state.segments, chunks, elapsedMs, update.isFinal === true);
   return state.segments;
 }
 
-export function splitTranscriptIntoChunks(text: string, forcedBreaks: number[] = []): string[] {
+export type ForcedBreakInput = number | LiveTranscriptForcedBreak;
+
+interface TranscriptChunk {
+  text: string;
+  forcedStartMs?: number;
+  forcedEndMs?: number;
+  speechStartMs?: number;
+  speechEndMs?: number;
+  words?: LiveTranscriptWord[];
+}
+
+interface TranscriptSlice {
+  text: string;
+  breakBefore?: LiveTranscriptForcedBreak;
+  breakAfter?: LiveTranscriptForcedBreak;
+}
+
+export function splitTranscriptIntoChunks(text: string, forcedBreaks: ForcedBreakInput[] = []): string[] {
+  return splitTranscriptIntoTimedChunks(text, forcedBreaks).map((chunk) => chunk.text);
+}
+
+function splitTranscriptIntoTimedChunks(
+  text: string,
+  forcedBreaks: ForcedBreakInput[] = [],
+): TranscriptChunk[] {
   const normalized = normalizeLiveTranscript(text);
   if (!normalized) return [];
 
-  const sortedBreaks = [...new Set(forcedBreaks)]
-    .filter((index) => index > 0 && index < normalized.length)
-    .sort((a, b) => a - b);
-  const slices: string[] = [];
+  const sortedBreaks = normalizeForcedBreaks(forcedBreaks, normalized.length);
+  const slices: TranscriptSlice[] = [];
   let start = 0;
+  let breakBefore: LiveTranscriptForcedBreak | undefined;
   for (const boundary of sortedBreaks) {
-    slices.push(normalized.slice(start, boundary));
-    start = boundary;
+    slices.push({
+      text: normalized.slice(start, boundary.index),
+      breakBefore,
+      breakAfter: boundary,
+    });
+    start = boundary.index;
+    breakBefore = boundary;
   }
-  slices.push(normalized.slice(start));
+  slices.push({ text: normalized.slice(start), breakBefore });
 
-  return slices.flatMap((slice) => balanceShortChunks(splitSliceIntoChunks(slice)));
+  return slices.flatMap((slice) => {
+    const chunks = balanceShortChunks(splitSliceIntoChunks(slice.text));
+    return chunks.map((chunk, index) => ({
+      text: chunk,
+      forcedStartMs: index === 0 ? slice.breakBefore?.nextStartMs : undefined,
+      forcedEndMs: index === chunks.length - 1 ? slice.breakAfter?.previousEndMs : undefined,
+    }));
+  });
 }
 
-function addForcedBreak(state: LiveTranscriptSegmentationState, index: number): void {
-  const duplicate = state.forcedBreaks.some((existing) => Math.abs(existing - index) <= 3);
-  if (!duplicate) state.forcedBreaks.push(index);
+function applySpeechSegmentTiming(
+  chunks: TranscriptChunk[],
+  speechSegments: LiveTranscriptSpeechSegment[] | undefined,
+  elapsedMs: number,
+): TranscriptChunk[] {
+  const words = sanitizeSpeechSegments(speechSegments, elapsedMs);
+  if (words.length === 0 || chunks.length === 0) return chunks;
+
+  let cursor = 0;
+  return chunks.map((chunk) => {
+    const target = compactForAlignment(chunk.text);
+    if (!target) return chunk;
+
+    const matched: LiveTranscriptWord[] = [];
+    let matchedText = '';
+    let fullyMatched = false;
+    const startCursor = cursor;
+    let nextCursor = cursor;
+    while (nextCursor < words.length) {
+      const word = words[nextCursor];
+      if (!word) break;
+      const wordText = compactForAlignment(word.text);
+      nextCursor += 1;
+      if (!wordText) {
+        cursor = nextCursor;
+        continue;
+      }
+
+      const nextText = `${matchedText}${wordText}`;
+      if (target.startsWith(nextText)) {
+        matched.push(word);
+        matchedText = nextText;
+        cursor = nextCursor;
+        if (matchedText.length >= target.length) {
+          fullyMatched = true;
+          break;
+        }
+        continue;
+      }
+
+      if (nextText.startsWith(target)) {
+        matched.push(word);
+        cursor = nextCursor;
+        fullyMatched = true;
+        break;
+      }
+
+      break;
+    }
+
+    const first = matched[0];
+    const last = matched[matched.length - 1];
+    if (!fullyMatched || !first || !last) {
+      cursor = startCursor;
+      return chunk;
+    }
+
+    return {
+      ...chunk,
+      speechStartMs: first.start_ms,
+      speechEndMs: last.end_ms,
+      words: matched,
+    };
+  });
+}
+
+function sanitizeSpeechSegments(
+  speechSegments: LiveTranscriptSpeechSegment[] | undefined,
+  elapsedMs: number,
+): LiveTranscriptWord[] {
+  return (speechSegments ?? [])
+    .map((segment): LiveTranscriptWord | null => {
+      const text = normalizeLiveTranscript(segment.text);
+      const startMs = finiteMs(segment.start_ms);
+      const endMs = finiteMs(segment.end_ms);
+      if (!text || startMs === null || endMs === null) return null;
+      const word: LiveTranscriptWord = {
+        text,
+        start_ms: Math.min(startMs, elapsedMs),
+        end_ms: Math.min(Math.max(startMs, endMs), elapsedMs),
+      };
+      if (typeof segment.confidence === 'number') {
+        word.confidence = segment.confidence;
+      }
+      return word;
+    })
+    .filter((segment): segment is LiveTranscriptWord => segment !== null)
+    .sort((a, b) => a.start_ms - b.start_ms || a.end_ms - b.end_ms);
+}
+
+function normalizeForcedBreaks(
+  forcedBreaks: ForcedBreakInput[],
+  textLength: number,
+): LiveTranscriptForcedBreak[] {
+  const sorted = forcedBreaks
+    .map((breakpoint) => (
+      typeof breakpoint === 'number'
+        ? {
+            index: breakpoint,
+            previousEndMs: Number.NaN,
+            nextStartMs: Number.NaN,
+          }
+        : breakpoint
+    ))
+    .filter((breakpoint) => breakpoint.index > 0 && breakpoint.index < textLength)
+    .sort((a, b) => a.index - b.index);
+
+  const out: LiveTranscriptForcedBreak[] = [];
+  for (const breakpoint of sorted) {
+    const duplicate = out.some((existing) => Math.abs(existing.index - breakpoint.index) <= 3);
+    if (!duplicate) out.push(breakpoint);
+  }
+  return out;
+}
+
+function addForcedBreak(
+  state: LiveTranscriptSegmentationState,
+  index: number,
+  previousEndMs: number,
+  nextStartMs: number,
+): void {
+  const duplicate = state.forcedBreaks.some((existing) => Math.abs(existing.index - index) <= 3);
+  if (!duplicate) {
+    state.forcedBreaks.push({
+      index,
+      previousEndMs: Math.max(0, previousEndMs),
+      nextStartMs: Math.max(0, nextStartMs),
+    });
+  }
 }
 
 function splitSliceIntoChunks(text: string): string[] {
@@ -144,34 +333,48 @@ function balanceShortChunks(chunks: string[]): string[] {
 
 function assignSegmentTiming(
   previous: LiveTranscriptSegment[],
-  chunks: string[],
+  chunks: TranscriptChunk[],
   elapsedMs: number,
   finalizeAll: boolean,
 ): LiveTranscriptSegment[] {
   if (chunks.length === 0) return [];
   const segments: LiveTranscriptSegment[] = [];
   for (let index = 0; index < chunks.length; index += 1) {
-    const text = chunks[index] ?? '';
+    const chunk = chunks[index];
+    if (!chunk) continue;
+    const text = chunk.text;
     const prev = isRelatedText(previous[index]?.text, text) ? previous[index] : undefined;
     const fallbackStart = index === 0 ? 0 : (segments[index - 1]?.end_ms ?? 0);
-    const startMs = index === 0
-      ? 0
-      : Math.max(fallbackStart, Math.min(prev?.start_ms ?? fallbackStart, elapsedMs));
+    const anchoredStart = finiteMs(chunk.speechStartMs) ?? finiteMs(chunk.forcedStartMs);
+    const startMs = anchoredStart === null
+      ? (
+          index === 0
+            ? 0
+            : Math.max(fallbackStart, Math.min(prev?.start_ms ?? fallbackStart, elapsedMs))
+        )
+      : Math.max(fallbackStart, Math.min(anchoredStart, elapsedMs));
     const proportionalEnd = Math.round(((index + 1) / chunks.length) * elapsedMs);
     const previousEnd = prev?.end_ms ?? 0;
     const rawEnd = index === chunks.length - 1
       ? elapsedMs
       : Math.max(proportionalEnd, previousEnd, startMs + 500);
-    const endMs = Math.max(startMs, Math.min(elapsedMs, rawEnd));
+    const anchoredEnd = finiteMs(chunk.speechEndMs) ?? finiteMs(chunk.forcedEndMs);
+    const cappedEnd = anchoredEnd === null ? rawEnd : anchoredEnd;
+    const endMs = Math.max(startMs, Math.min(elapsedMs, cappedEnd));
     segments.push({
       id: index,
       start_ms: startMs,
       end_ms: endMs,
       text,
       is_final: finalizeAll || index < chunks.length - 1 || isCompleteChunk(text),
+      words: chunk.words,
     });
   }
   return segments;
+}
+
+function finiteMs(value: number | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : null;
 }
 
 function isRelatedText(previous: string | undefined, next: string): boolean {
@@ -205,4 +408,10 @@ function joinTranscriptText(left: string, right: string): string {
 
 function normalizeLiveTranscript(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
+}
+
+function compactForAlignment(text: string): string {
+  return normalizeLiveTranscript(text)
+    .toLocaleLowerCase()
+    .replace(/[\s，,、；;：:。！？!?.'"“”‘’（）()[\]【】]/g, '');
 }

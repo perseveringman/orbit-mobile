@@ -64,6 +64,7 @@ export interface ManifestRecordingInfo {
   partial_provider: string;
   final_provider: string;
   diarization_provider?: string | null;
+  source?: Record<string, unknown>;
 }
 
 export interface ManifestDerivativeRef {

@@ -11,7 +11,6 @@ import * as Haptics from 'expo-haptics';
 import { Link, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -43,6 +42,8 @@ import {
   createRecordingCapture,
   listRecordingMetas,
 } from '../../../core/recording/recording-service';
+import { createImportedAudioRecording } from '../../../core/recording/audio-import';
+import { pickAudioFiles } from '../../../core/file/picker';
 import {
   discardRecoveredVoiceRecording,
   recoverInterruptedVoiceRecordings,
@@ -60,6 +61,11 @@ import {
   formatDurationLabel,
 } from '../format';
 import { colors, radius, spacing } from '../theme';
+import {
+  formatBattery,
+  formatX1StorageUsage,
+  isAutoConnectX1Device,
+} from '../x1-device';
 
 interface Group {
   key: string;
@@ -85,8 +91,6 @@ const EMPTY_X1_DEVICE_INFO: X1DeviceSnapshot = {
   version: null,
 };
 
-const X1_SERVICE_UUID = '0000ae20-0000-1000-8000-00805f9b34fb';
-
 export function RecordingsListScreen({
   embedded = false,
 }: RecordingsListScreenProps): React.ReactElement {
@@ -97,6 +101,7 @@ export function RecordingsListScreen({
   const [recordings, setRecordings] = useState<RecordingMeta[]>([]);
   const [recoverable, setRecoverable] = useState<RecoveredVoiceRecording[]>([]);
   const [recoveringUri, setRecoveringUri] = useState<string | null>(null);
+  const [importingAudio, setImportingAudio] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [x1Connection, setX1Connection] = useState<X1ConnectionStateEvent>({
@@ -348,21 +353,32 @@ export function RecordingsListScreen({
     }
   }
 
-  function showX1Details(): void {
-    const rows = [
-      `状态：${x1Status.badge}`,
-      `设备：${x1DeviceName ?? '未连接'}`,
-      `电量：${formatBattery(x1DeviceInfo.battery)}`,
-      `容量：${formatX1Storage(x1DeviceInfo.storage)}`,
-      `固件：${x1DeviceInfo.version ?? '读取中'}`,
-    ];
-    Alert.alert('X1 录音卡', rows.join('\n'), [
-      {
-        text: '通信测试',
-        onPress: () => router.push('/recording/x1'),
-      },
-      { text: '关闭', style: 'cancel' },
-    ]);
+  function openX1Details(): void {
+    router.push('/recording/x1');
+  }
+
+  async function importAudioFile(): Promise<void> {
+    setImportingAudio(true);
+    setError(null);
+    try {
+      const files = await pickAudioFiles();
+      const file = files[0];
+      if (!file) return;
+      const db = await openDb();
+      const detail = await createImportedAudioRecording(file, {
+        db,
+        sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
+      });
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      void writeWidgetSnapshot(db).catch(() => undefined);
+      void runSyncTick({ db });
+      await refreshList();
+      router.push(`/recording/${detail.meta.id}`);
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : String(importError));
+    } finally {
+      setImportingAudio(false);
+    }
   }
 
   return (
@@ -420,7 +436,7 @@ export function RecordingsListScreen({
               <View style={styles.entryTopActions}>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={showX1Details}
+                  onPress={openX1Details}
                   style={({ pressed }) => [styles.entryDetailButton, pressed && styles.pressed]}
                 >
                   <Text style={styles.entryDetailButtonText}>详情</Text>
@@ -432,7 +448,7 @@ export function RecordingsListScreen({
             </View>
             <Pressable
               accessibilityRole="button"
-              onPress={() => router.push('/recording/x1-session')}
+              onPress={openX1Details}
               style={({ pressed }) => [styles.entryMain, pressed && styles.pressed]}
             >
               <View style={styles.entryTextBlock}>
@@ -446,7 +462,7 @@ export function RecordingsListScreen({
                 <View style={styles.entryChipRow}>
                   <EntryChip text={`电量 ${formatBattery(x1DeviceInfo.battery)}`} />
                   <EntryChip text={`固件 ${x1DeviceInfo.version ?? '读取中'}`} />
-                  <EntryChip text={`容量 ${formatX1Storage(x1DeviceInfo.storage)}`} wide />
+                  <EntryChip text={`容量 ${formatX1StorageUsage(x1DeviceInfo.storage)}`} wide />
                 </View>
               ) : (
                 <View style={styles.entryChipRow}>
@@ -465,6 +481,24 @@ export function RecordingsListScreen({
             </Pressable>
           </View>
         </View>
+        <Pressable
+          accessibilityRole="button"
+          disabled={importingAudio}
+          onPress={() => {
+            void importAudioFile();
+          }}
+          style={({ pressed }) => [
+            styles.importBar,
+            importingAudio && styles.disabled,
+            pressed && styles.pressed,
+          ]}
+        >
+          <View style={styles.importBarText}>
+            <Text style={styles.importBarTitle}>导入录音文件</Text>
+            <Text style={styles.importBarSub}>从文件或语音备忘录分享来的音频会先保存到本机，再排队用火山 ASR 识别。</Text>
+          </View>
+          <Text style={styles.importBarAction}>{importingAudio ? '导入中' : '选择文件'}</Text>
+        </Pressable>
         {recoverable.map((item) => {
           const busy = recoveringUri === item.uri;
           return (
@@ -660,13 +694,6 @@ function describeX1Connection(state: X1ConnectionStateEvent): {
   };
 }
 
-function isAutoConnectX1Device(device: X1DiscoveredDevice): boolean {
-  const advertisedServices = device.advertisedServices.map((service) => service.toLowerCase());
-  if (advertisedServices.includes(X1_SERVICE_UUID)) return true;
-  const name = device.name.toLowerCase();
-  return name.includes('录音笔') || name.includes('newman') || name.includes('niuman');
-}
-
 function isX1BatteryStatus(event: X1DeviceStatusEvent): event is { kind: 'battery'; battery: number } {
   return event.kind === 'battery' && typeof event.battery === 'number';
 }
@@ -693,28 +720,6 @@ function isX1DeviceIdentity(event: X1DeviceStatusEvent): event is X1DeviceIdenti
     && typeof event.macHex === 'string'
     && typeof event.appKey === 'string'
     && typeof event.appKeyHex === 'string';
-}
-
-function formatBattery(value: number | null): string {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '读取中';
-  return `${Math.round(value)}%`;
-}
-
-function formatX1Storage(storage: X1StorageInfo | null): string {
-  if (!storage) return '读取中';
-  return `${formatBytes(storage.freeBytes)} 可用 / ${formatBytes(storage.totalBytes)}`;
-}
-
-function formatBytes(bytes: number | undefined): string {
-  if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit] ?? 'B'}`;
 }
 
 const styles = StyleSheet.create({
@@ -760,6 +765,44 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
     marginBottom: spacing.lg,
+  },
+  importBar: {
+    alignItems: 'center',
+    backgroundColor: colors.bgRaised,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    gap: 14,
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+    padding: 14,
+  },
+  importBarText: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  importBarTitle: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  importBarSub: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  importBarAction: {
+    backgroundColor: colors.ink,
+    borderRadius: radius.pill,
+    color: colors.bg,
+    fontSize: 12,
+    fontWeight: '900',
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   entryCard: {
     backgroundColor: colors.bgSoft,

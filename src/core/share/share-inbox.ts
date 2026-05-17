@@ -1,5 +1,6 @@
 import { createCapture } from '../capture/atomic-write';
 import type { CaptureAttachment } from '../capture/types';
+import { createRecordingCapture } from '../recording/recording-service';
 import { buildShareContext, type ShareContext } from './platform';
 import * as capturesRepo from '../storage/captures-repo';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
@@ -16,7 +17,7 @@ interface ShareInboxPayload {
   title?: string | null;
   share_context?: ShareContext | null;
   attachments: Array<{
-    type: 'image' | 'file';
+    type: 'image' | 'file' | 'audio';
     filename: string;
     mime: string;
   }>;
@@ -62,26 +63,65 @@ export async function importShareInbox(options: ImportShareInboxOptions): Promis
           title: payload.title ?? null,
         });
       const attachments = payload.attachments.map<CaptureAttachment>((attachment) => ({
-        type: attachment.type === 'image' ? 'image' : 'file',
+        type: attachment.type === 'image'
+          ? 'image'
+          : attachment.type === 'audio'
+            ? 'audio'
+            : 'file',
         filename: attachment.filename,
         localUri: joinPath(shareDir, 'attachments', attachment.filename),
         mime: attachment.mime,
       }));
-      await createCapture(
-        {
-          kind: attachments.length > 0 && content.length > 0 ? 'mixed' : 'share',
-          content,
-          attachments,
-          shareContext,
-        },
-        {
-          db: options.db,
-          fs,
-          id: payload.id,
-          txnId: `${payload.id}_share_import`,
-          sourceVersion: options.sourceVersion ?? '0.0.0',
-        },
-      );
+      const audio = attachments.find((attachment) => attachment.type === 'audio');
+      if (audio) {
+        const now = isoNow();
+        await createRecordingCapture(
+          {
+            title: payload.title?.trim() || payload.content.trim() || titleFromFilename(audio.filename),
+            audioUri: audio.localUri,
+            audioFilename: audio.filename,
+            audioMime: audio.mime,
+            durationMs: 0,
+            startedAt: now,
+            recordedAt: now,
+            languageHints: [],
+            partials: [],
+            transcriptText: '',
+            partialProvider: 'share-audio-import',
+            waveformSamples: [],
+            sessionAttachments: attachments.filter((attachment) => attachment.type !== 'audio'),
+            source: {
+              kind: 'share_audio',
+              file_name: audio.filename,
+              imported_at: now,
+            },
+            shareContext,
+          },
+          {
+            db: options.db,
+            fs,
+            id: payload.id,
+            txnId: `${payload.id}_share_import`,
+            sourceVersion: options.sourceVersion ?? '0.0.0',
+          },
+        );
+      } else {
+        await createCapture(
+          {
+            kind: attachments.length > 0 && content.length > 0 ? 'mixed' : 'share',
+            content,
+            attachments,
+            shareContext,
+          },
+          {
+            db: options.db,
+            fs,
+            id: payload.id,
+            txnId: `${payload.id}_share_import`,
+            sourceVersion: options.sourceVersion ?? '0.0.0',
+          },
+        );
+      }
       await fs.delete(shareDir, { idempotent: true });
       imported += 1;
     } catch (error) {
@@ -89,6 +129,11 @@ export async function importShareInbox(options: ImportShareInboxOptions): Promis
     }
   }
   return imported;
+}
+
+function titleFromFilename(filename: string): string {
+  const stem = filename.replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ').trim();
+  return stem || '导入录音';
 }
 
 function validatePayload(payload: ShareInboxPayload): void {

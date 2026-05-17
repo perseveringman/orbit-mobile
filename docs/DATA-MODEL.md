@@ -146,6 +146,13 @@ CREATE TABLE device_info (
 - `icloud_container_status` — 缓存的 `available | not-signed-in | disabled | restricted`
 - `user_setting_keep_audio_original` — 用户是否保留原录音（默认 1）
 - `user_setting_image_compression` — `always | wifi_only | never`
+- `user_setting_ai_hotwords` — JSON string array，录音转写 AI 校对使用的用户热词列表
+- `user_setting_asr_enabled` — 是否启用导入录音的云端 ASR 后台识别
+- `user_setting_asr_auto_imported` — 导入音频、Share Extension 音频、X1 离线文件是否自动排队识别
+- `user_setting_asr_base_url` — 火山语音识别 API base URL，默认 `https://openspeech.bytedance.com`
+- `user_setting_asr_resource_id` — 火山语音识别资源 ID，默认 `volc.bigasr.auc_turbo`
+- `user_setting_asr_uid` — ASR 请求中的用户标识，默认 `orbit-mobile`
+- `user_setting_asr_boosting_table_id` — 可选火山热词表 ID；敏感 Key 不进 SQLite，只存 iOS Keychain
 - `user_setting_gc_days` — acked 后多久本地清理，默认 30
 
 ### 1.5 recordings 表
@@ -174,9 +181,40 @@ CREATE TABLE recordings (
 ```
 
 当前本地实现写入：
-- `partial_provider = 'ios-speech' | 'unavailable'`
-- `final_provider = 'local-live-transcript'`
+- `partial_provider = 'ios-speech' | 'x1-realtime-ios-speech' | 'x1-import' | 'x1-realtime' | 'audio-import' | 'share-audio-import' | 'unavailable'`
+- `final_provider = 'local-live-transcript' | 'pending-cloud-asr' | 'volcengine:<resource_id>'`
+- 导入音频、语音备忘录分享、X1 离线文件和无 Apple Speech 转写的恢复录音会先写 `final_state='offline_queued'`，后台 `recording_transcription` 成功后再改为 `done`
 - 派生物 provider 为 `local-heuristic`
+
+### 1.6 recording_annotations 表
+
+录音详情页上的用户反馈、书签、时间点附件状态、自定义派生笔记、X1 导入状态和 AI 转写校对建议都写入 `recording_annotations`。它是本机 UI 状态，不替代 capture 目录里的原始录音、转写和 manifest。
+
+当前 `kind` 取值：
+
+| kind | 含义 |
+|---|---|
+| `segment_feedback` | 用户对某段转写/大纲的反馈 |
+| `bookmark` | 用户在录音详情页长按转写生成的书签 |
+| `session_event` | Recording Session 中标记时间点和附加材料 |
+| `todo_state` | AI 待办的本地勾选状态 |
+| `custom_derivative` | 用户套用模板后生成的自定义录音笔记 |
+| `x1_import` | 纽曼 X1 设备录音导入状态 |
+| `transcript_correction` | AI 转写校对建议；pending 时 UI 原地高亮，accepted 后已写回 `final-transcript.json` |
+
+### 1.7 ai_tasks 表
+
+后台 AI / ASR 队列表。任务是 capture 之后的附加处理，不是 capture 成功的前置条件。
+
+当前 `kind` 取值：
+
+| kind | provider | 输入 | 输出 |
+|---|---|---|---|
+| `recording_transcription` | `volcengine` | 本地已保存的音频附件 base64、语言提示、可选火山热词表 ID | 原子改写 `final-transcript.json` / manifest audio transcription，并更新 `recordings.final_state` |
+| `recording_notes` | `deepseek` | 转写文本和时间戳 | summary / decisions / risks / todos 派生物 |
+| `recording_proofread` | `deepseek` | 转写文本、时间戳、本地热词列表 | `recording_annotations.kind='transcript_correction'` |
+
+`UNIQUE(capture_id, kind)` 保证同一录音同类任务可重排但不会重复堆积。`recording_transcription` 会请求火山说话人区分；如果返回 `utterances[].additions.speaker`，本地会映射为 `S1/S2/...` 并写入 `final-transcript.json.speakers`、segment `speaker`、`recordings.speaker_count` 和 `manifest.recording.diarization_provider`。成功后会重新排队 text-only notes/proofread；失败只影响转写状态，原始音频和同步元数据保留。
 
 ---
 

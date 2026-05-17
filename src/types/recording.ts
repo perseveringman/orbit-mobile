@@ -38,6 +38,23 @@ export interface TranscriptSegment {
   is_partial?: boolean;  // partial 流里临时段会带这个
 }
 
+export type TranscriptCorrectionStatus = 'pending' | 'accepted' | 'dismissed';
+
+export interface TranscriptCorrection {
+  id: string;
+  segment_id: number;
+  start_ms: number;
+  end_ms: number;
+  original_text: string;
+  corrected_text: string;
+  reason: string;
+  confidence?: number;
+  hotword?: string;
+  status: TranscriptCorrectionStatus;
+  created_at: string;
+  accepted_at?: string;
+}
+
 export interface FinalTranscript {
   schema: 'orbit.transcript@1';
   language_detected: string[];          // ['zh-CN','en-US']

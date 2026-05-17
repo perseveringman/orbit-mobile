@@ -72,16 +72,22 @@ export async function listRunnable(
   return db.getAllAsync<AiTaskRow>(sql, params);
 }
 
-export async function hasBlockingTask(db: SQLiteDatabaseLike, captureId: string): Promise<boolean> {
+export async function hasBlockingTask(
+  db: SQLiteDatabaseLike,
+  captureId: string,
+  kinds: readonly AiTaskKind[] = ['recording_notes'],
+): Promise<boolean> {
+  const placeholders = kinds.map(() => '?').join(', ');
   const row = await db.getFirstAsync<{ count: number }>(
     `SELECT COUNT(*) AS count
      FROM ai_tasks
      WHERE capture_id = ?
+       AND kind IN (${placeholders})
        AND (
          status IN ('queued', 'running')
          OR (status = 'failed' AND next_retry_at IS NOT NULL)
        )`,
-    [captureId],
+    [captureId, ...kinds],
   );
   return (row?.count ?? 0) > 0;
 }

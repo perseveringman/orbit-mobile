@@ -5,10 +5,21 @@ export interface SpeechAvailability {
   reason?: string;
 }
 
+export interface TranscriptionSegment {
+  text: string;
+  startMs: number;
+  endMs: number;
+  durationMs: number;
+  confidence?: number;
+  substringLocation?: number;
+  substringLength?: number;
+}
+
 export interface TranscriptionEvent {
   transcript: string;
   isFinal: boolean;
   source: 'ios-speech';
+  segments?: TranscriptionSegment[];
 }
 
 export interface SpeechCaptureResult {
