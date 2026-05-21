@@ -3,7 +3,7 @@
 > **此文件必须随每次提交更新。**  
 > 下一个接手的 AI 第一件事是读这里，知道"做到哪里了"。
 
-**Last updated**: 2026-05-21（X1 U 盘模式导入支持）
+**Last updated**: 2026-05-21（TestFlight 0.1.0 (6) 上传）
 **Last updater**: Codex
 **Current milestone**: **M0-M9 — local code complete; DeepSeek AI notes/proofread + Volcengine imported-audio ASR implemented; X1 BLE file import + realtime capture code complete**
 **Next milestone**: 真机/iCloud/TestFlight 验收 + 纽曼 X1 实时录音端到端复测 + Voice Memos `.m4a` 火山识别兼容性/必要转码验证
@@ -41,6 +41,7 @@ TestFlight 前优先验收：
 - M2 已实现本地文本 Capture：manifest/hash、五阶段原子写入、reconcile、自愈、草稿和 Expo Router UI。
 - 2026-05-17 TestFlight 首版已上传：EAS project 已绑定为 `@yanbob/orbit-mobile`（projectId `371314e9-4ff3-423b-b20c-ad3f38cb6959`），ASC App ID 为 `6770225506`，新增 `eas.json` production/submit profile，app / Share Extension / Widget 版本统一为 `0.1.0`。首轮 build `5910b40b-ddaf-4126-9410-c8cecb702acf` 因 `package-lock.json` 与 `package.json` 不同步在 `npm ci` 失败；已移除不匹配的直接 `@expo/cli@55` devDependency、显式 pin `react-dom@19.1.0` 并刷新 lock。`npm ci --include=dev`、`npm run typecheck`、`npm run lint`、`npm test`、`git diff --check` 通过。EAS build `445a5209-1e09-4350-a90d-c877aa5f8885` 已成功生成 `0.1.0 (4)` IPA，并通过 EAS Submit 上传到 App Store Connect；Apple 正在处理，TestFlight 页面为 `https://appstoreconnect.apple.com/apps/6770225506/testflight/ios`。
 - 2026-05-18 TestFlight 第二版已上传：发布前 `npm ci --include=dev`、`npm run typecheck`、`npm run lint`、`npm test`（25 files / 84 tests）和 `git diff --check` 通过。EAS build `cb2a3ab1-faed-41b5-8344-c5ed9e064e78` 已成功生成 `0.1.0 (5)` IPA，并通过 EAS Submit `5f1dcf67-fc6d-4a43-bacc-e30131af8a19` 上传到 App Store Connect；Apple 正在处理，TestFlight 页面为 `https://appstoreconnect.apple.com/apps/6770225506/testflight/ios`。注意：EAS `--what-to-test` / changelog submit 需要 Enterprise plan，本次先无 changelog 重新提交成功。
+- 2026-05-21 TestFlight 第三版已上传：发布前 `npm ci --include=dev`、`npm run typecheck`、`npm run lint`、`npm test`（26 files / 85 tests）和 `git diff --check` 通过。EAS build `ca458daa-8c39-4f35-99a5-2b2bca6de56c` 已成功生成 `0.1.0 (6)` IPA，并通过 EAS Submit `83e6e91f-88a4-4419-9e0d-09ae97556050` 上传到 App Store Connect；Apple 正在处理，TestFlight 页面为 `https://appstoreconnect.apple.com/apps/6770225506/testflight/ios`。
 - `src/utils/fs.ts` 的 `fsync()` 不再是 noop；运行时依赖本地 Expo native module `orbit-durable-fs`。
 - 从 M2 起不能使用 Expo Go；必须使用 Development Build。`Cannot find native module 'OrbitDurableFS'` 表示尚未 `npx expo prebuild --platform ios && npx expo run:ios`。
 - 已生成 `ios/` 工程，并为 `orbit-durable-fs` / `orbit-icloud-bridge` 补齐 podspec；`expo-modules-autolinking resolve --platform ios` 能识别两个本地模块。
