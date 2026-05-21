@@ -8,6 +8,8 @@ import { pickAudioFiles, type PickedFile } from '../../../core/file/picker';
 import {
   importX1UsbAudioFile,
   listImportedX1AudioFileNames,
+  listImportedX1UsbAudioFiles,
+  type X1UsbImportedAudioFile,
   x1ImportNameForPickedFile,
 } from '../../../core/recorder-device/x1-usb-import';
 import { openDb } from '../../../core/storage/db';
@@ -16,12 +18,14 @@ import { runSyncTick } from '../../../core/sync/worker';
 import { writeWidgetSnapshot } from '../../../core/widget/snapshot';
 import { returnTo } from '../../navigation/back';
 import { colors, radius, spacing } from '../theme';
+import { formatTimestamp } from '../format';
 import { formatBytes } from '../x1-device';
 
 export function X1UsbImportScreen(): React.ReactElement {
   const router = useRouter();
   const [selectedFiles, setSelectedFiles] = useState<PickedFile[]>([]);
   const [importedNames, setImportedNames] = useState<Set<string>>(new Set());
+  const [importedRows, setImportedRows] = useState<X1UsbImportedAudioFile[]>([]);
   const [busyName, setBusyName] = useState<string | null>(null);
   const [batchImporting, setBatchImporting] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -33,12 +37,13 @@ export function X1UsbImportScreen(): React.ReactElement {
   );
 
   useEffect(() => {
-    void refreshImportedNames();
+    void refreshImportedState();
   }, []);
 
-  async function refreshImportedNames(): Promise<void> {
-    const db = await openDb();
+  async function refreshImportedState(sharedDb?: SQLiteDatabaseLike): Promise<void> {
+    const db = sharedDb ?? (await openDb());
     setImportedNames(await listImportedX1AudioFileNames({ db }));
+    setImportedRows(await listImportedX1UsbAudioFiles({ db }));
   }
 
   async function pickUsbFiles(): Promise<void> {
@@ -48,7 +53,7 @@ export function X1UsbImportScreen(): React.ReactElement {
       const files = await pickAudioFiles({ multiple: true });
       if (files.length === 0) return;
       setSelectedFiles((prev) => mergePickedFiles(prev, files));
-      await refreshImportedNames();
+      await refreshImportedState();
     } catch (pickError) {
       setError(messageForError(pickError));
     } finally {
@@ -68,6 +73,7 @@ export function X1UsbImportScreen(): React.ReactElement {
         sourceVersion: Constants.expoConfig?.version ?? '0.0.0',
       });
       setImportedNames((prev) => new Set([...prev, name]));
+      await refreshImportedState(db);
       if (!sharedDb) {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         void writeWidgetSnapshot(db).catch(() => undefined);
@@ -154,7 +160,7 @@ export function X1UsbImportScreen(): React.ReactElement {
             <Pressable
               accessibilityRole="button"
               disabled={busy}
-              onPress={() => void refreshImportedNames()}
+              onPress={() => void refreshImportedState()}
               style={({ pressed }) => [styles.inlineButton, pressed && styles.pressed, busy && styles.disabled]}
             >
               <Text style={styles.inlineButtonText}>刷新状态</Text>
@@ -190,6 +196,39 @@ export function X1UsbImportScreen(): React.ReactElement {
             );
           }) : (
             <Text style={styles.hint}>尚未选择 U 盘录音文件。</Text>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              导入历史{importedRows.length > 0 ? ` · ${importedRows.length} 条` : ''}
+            </Text>
+          </View>
+          {importedRows.length > 0 ? importedRows.map((item) => (
+            <View key={item.recordingId} style={styles.fileRow}>
+              <View style={styles.rowMain}>
+                <Text numberOfLines={1} style={styles.rowTitle}>{item.name}</Text>
+                <Text style={styles.rowMeta}>
+                  已导入 · {formatImportedAt(item.importedAt)}
+                  {item.byteSize ? ` · ${formatBytes(item.byteSize)}` : ''}
+                  {item.durationMs > 0 ? ` · ${formatTimestamp(item.durationMs)}` : ''}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push(`/recording/${item.recordingId}`)}
+                style={({ pressed }) => [
+                  styles.fileActionButton,
+                  styles.fileActionButtonDone,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.fileActionDoneText}>打开</Text>
+              </Pressable>
+            </View>
+          )) : (
+            <Text style={styles.hint}>暂无已导入的 X1 录音。</Text>
           )}
         </View>
       </ScrollView>
@@ -238,6 +277,17 @@ function mergePickedFiles(prev: PickedFile[], next: PickedFile[]): PickedFile[] 
 
 function isImported(file: PickedFile, importedNames: Set<string>): boolean {
   return importedNames.has(x1ImportNameForPickedFile(file)) || importedNames.has(file.filename);
+}
+
+function formatImportedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('zh-Hans-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }
 
 function messageForError(error: unknown): string {

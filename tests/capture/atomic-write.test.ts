@@ -40,6 +40,7 @@ describe('atomic write', () => {
       sync_state: 'pending',
       content_preview: 'hello orbit',
       content_hash: result.manifestSha256,
+      local_path: 'captures/mob_cap_test',
     });
     await expect(eventsRepo.listByCapture(db, 'mob_cap_test')).resolves.toHaveLength(1);
     expect(fs.fsynced).toContain(joinPath(fs.documentDirectory, 'wal', 'txn_1.ndjson'));

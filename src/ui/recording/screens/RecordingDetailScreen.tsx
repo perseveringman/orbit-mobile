@@ -23,7 +23,7 @@ import {
 } from 'react-native';
 
 import { loadRecordingDetail } from '../../../core/recording/recording-service';
-import { prepareAudioPlayback } from '../../../core/audio/playback';
+import { durationFromStatus, prepareAudioPlayback } from '../../../core/audio/playback';
 import {
   enqueueRecordingProofreadAiTask,
   enqueueRecordingTranscriptionAiTask,
@@ -76,6 +76,7 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
   const [playing, setPlaying] = useState(false);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [position, setPosition] = useState(0);
+  const [playbackDurationMs, setPlaybackDurationMs] = useState(0);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [feedback, setFeedback] = useState<Record<number, 'up' | 'down' | undefined>>({});
   const [bookmarks, setBookmarks] = useState<RecordingBookmark[]>([]);
@@ -85,11 +86,12 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
   const [transcriptionBusy, setTranscriptionBusy] = useState(false);
   const soundRef = useRef<Audio.Sound | null>(null);
 
-  const total = detail?.meta.duration_ms ?? 1;
+  const total = Math.max(detail?.meta.duration_ms ?? 0, playbackDurationMs, 1);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setPlaybackDurationMs(0);
     loadRecordingDetail(id)
       .then((loaded) => {
         if (!cancelled) {
@@ -219,12 +221,15 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
       const current = soundRef.current;
       if (current) {
         const status = await current.getStatusAsync();
+        const statusDuration = durationFromStatus(status);
+        if (statusDuration) setPlaybackDurationMs(statusDuration);
+        const currentTotal = Math.max(detail.meta.duration_ms, statusDuration ?? playbackDurationMs, 1);
         if (status.isLoaded && status.isPlaying) {
           await current.pauseAsync();
           setPlaying(false);
           return;
         }
-        if (status.isLoaded && status.positionMillis >= Math.max(0, total - 250)) {
+        if (status.isLoaded && status.positionMillis >= Math.max(0, currentTotal - 250)) {
           await current.setPositionAsync(0);
           setPosition(0);
         }
@@ -238,8 +243,10 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
       const created = await Audio.Sound.createAsync(
         { uri: detail.audio_uri },
         { shouldPlay: false, positionMillis: initialPosition, progressUpdateIntervalMillis: 250 },
-        (status) => handlePlaybackStatus(status, total, setPosition, setPlaying, setLoadError),
+        (status) => handlePlaybackStatus(status, setPosition, setPlaying, setLoadError, setPlaybackDurationMs),
       );
+      const createdDuration = durationFromStatus(created.status);
+      if (createdDuration) setPlaybackDurationMs(createdDuration);
       soundRef.current = created.sound;
       await created.sound.setRateAsync(playbackRate, true);
       await created.sound.playAsync();
@@ -419,6 +426,7 @@ export function RecordingDetailScreen({ id, returnHomeOnBack = false }: Props): 
             loading={playbackLoading}
             playbackRate={playbackRate}
             onCycleRate={cyclePlaybackRate}
+            durationMs={Math.max(detail.meta.duration_ms, playbackDurationMs)}
             onSeek={(ms) => {
               void jumpTo(ms);
             }}
@@ -514,10 +522,10 @@ function Header({
 
 function handlePlaybackStatus(
   status: AVPlaybackStatus,
-  total: number,
   setPosition: (value: number) => void,
   setPlaying: (value: boolean) => void,
   setError: (value: string | null) => void,
+  setDuration: (value: number) => void,
 ): void {
   if (!status.isLoaded) {
     if (status.error) {
@@ -526,11 +534,15 @@ function handlePlaybackStatus(
     }
     return;
   }
+  const duration = durationFromStatus(status);
+  if (duration) {
+    setDuration(duration);
+  }
   setPosition(status.positionMillis);
   setPlaying(status.isPlaying);
   if (status.didJustFinish) {
     setPlaying(false);
-    setPosition(total);
+    setPosition(duration ?? status.positionMillis);
   }
 }
 
@@ -542,6 +554,7 @@ function SourceTab({
   loading,
   playbackRate,
   onCycleRate,
+  durationMs,
   onSeek,
 }: {
   detail: RecordingDetail;
@@ -551,9 +564,10 @@ function SourceTab({
   loading: boolean;
   playbackRate: number;
   onCycleRate: () => void;
+  durationMs: number;
   onSeek: (ms: number) => void;
 }): React.ReactElement {
-  const total = detail.meta.duration_ms;
+  const total = durationMs;
   const progress = total > 0 ? position / total : 0;
   return (
     <View>

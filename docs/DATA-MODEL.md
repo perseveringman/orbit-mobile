@@ -50,7 +50,7 @@ CREATE TABLE captures (
   ack_vault_path       TEXT,                 -- Mac 端 ingest 写到了哪（ACK v2 note_path / library_item_path；legacy 回退路径）
   
   -- 本地管理
-  local_path           TEXT NOT NULL,        -- captures/<id>/ 的绝对路径
+  local_path           TEXT NOT NULL,        -- 相对路径 captures/<id>；运行时解析到当前 documentDirectory
   deleted_locally      INTEGER DEFAULT 0,    -- 软删除
   
   -- 扩展
@@ -67,6 +67,7 @@ CREATE INDEX idx_captures_kind        ON captures(kind);
 **关键字段解释**：
 
 - `id` 格式 `mob_cap_<uuid>`：`mob_cap_` 前缀让 Mac 端能一眼认出是手机来的
+- `local_path` 必须持久化为 `captures/<id>` 相对路径，不保存 iOS app container 绝对路径；TestFlight 更新后 container UUID 会变化，运行时由当前 `documentDirectory` 解析
 - `content_hash`：manifest.json 的 sha256。Mac 端 ingest 时会重算一次校验
 - `sync_state` 是 enum 但用 TEXT 存，因为后续可能扩展
 - `sync_next_retry_at`：预先算好的最早重试时间，worker 可以直接 `WHERE sync_next_retry_at <= now()`
@@ -468,7 +469,7 @@ WHERE sync_state = 'acked'
   AND acked_at < datetime('now', '-30 days');
 
 -- 对每条：
--- 1. rm -rf local_path
+-- 1. rm -rf documentDirectory || '/' || local_path
 -- 2. 不删 SQLite 记录（保留元数据供"列表还能看到"）
 -- 3. UPDATE captures SET deleted_locally = 1
 ```

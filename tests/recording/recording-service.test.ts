@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createRecordingCapture, loadRecordingDetail, listRecordingMetas } from '@/core/recording/recording-service';
+import { resolveCaptureLocalPath } from '@/core/capture/local-path';
 import * as capturesRepo from '@/core/storage/captures-repo';
 import * as eventsRepo from '@/core/storage/events-repo';
 import * as recordingsRepo from '@/core/storage/recordings-repo';
@@ -51,6 +52,7 @@ describe('recording service', () => {
     );
 
     const capture = await capturesRepo.get(db, detail.meta.id);
+    const capturePath = capture ? resolveCaptureLocalPath(fs, capture.local_path, capture.id) : '';
     const recording = await recordingsRepo.get(db, detail.meta.id);
     expect(capture).toMatchObject({
       kind: 'recording',
@@ -77,7 +79,7 @@ describe('recording service', () => {
     expect(detail.derivatives.decisions?.items?.[0]?.body).toContain('决定');
     expect(detail.derivatives.todos?.items?.[0]?.body).toContain('需要');
     expect(detail.waveform_samples).toEqual([0.1, 0.4, 0.8, 0.2]);
-    await expect(fs.readString(joinPath(capture?.local_path ?? '', 'audio.m4a'))).resolves.toBe('audio-bytes');
+    await expect(fs.readString(joinPath(capturePath, 'audio.m4a'))).resolves.toBe('audio-bytes');
   });
 
   it('lists and reloads persisted recordings from Layer 2', async () => {
@@ -107,6 +109,7 @@ describe('recording service', () => {
     const metas = await listRecordingMetas({ db, fs });
     const reloaded = await loadRecordingDetail(created.meta.id, { db, fs });
     const capture = await capturesRepo.get(db, created.meta.id);
+    const capturePath = capture ? resolveCaptureLocalPath(fs, capture.local_path, capture.id) : '';
     expect(metas).toHaveLength(1);
     expect(metas[0]).toMatchObject({ title: '课堂笔记', final_state: 'offline_queued' });
     expect(metas[0]?.waveform_samples).toEqual([0.2, 0.5]);
@@ -115,8 +118,8 @@ describe('recording service', () => {
     expect(reloaded?.audio_exists).toBe(true);
     expect(reloaded?.waveform_samples).toEqual([0.2, 0.5]);
     expect(reloaded?.transcript.segments[0]?.text).toContain('暂无可用实时转写');
-    await expect(fs.readString(joinPath(capture?.local_path ?? '', 'audio.mp3'))).resolves.toBe('audio-bytes');
-    const manifest = JSON.parse(await fs.readString(joinPath(capture?.local_path ?? '', 'manifest.json'))) as {
+    await expect(fs.readString(joinPath(capturePath, 'audio.mp3'))).resolves.toBe('audio-bytes');
+    const manifest = JSON.parse(await fs.readString(joinPath(capturePath, 'manifest.json'))) as {
       attachments: Array<{ filename?: string; recorded_at?: string }>;
       local_timestamps?: { input_started_at?: string };
     };
@@ -162,7 +165,8 @@ describe('recording service', () => {
     );
 
     const capture = await capturesRepo.get(db, created.meta.id);
-    const manifest = JSON.parse(await fs.readString(joinPath(capture?.local_path ?? '', 'manifest.json'))) as {
+    const capturePath = capture ? resolveCaptureLocalPath(fs, capture.local_path, capture.id) : '';
+    const manifest = JSON.parse(await fs.readString(joinPath(capturePath, 'manifest.json'))) as {
       attachments: Array<{ filename?: string; type?: string; captured_at?: string }>;
     };
     expect(capture).toMatchObject({
@@ -175,7 +179,7 @@ describe('recording service', () => {
       filename: 'event-photo-1.jpg',
       captured_at: '2026-05-14T11:30:09.000Z',
     }));
-    await expect(fs.readString(joinPath(capture?.local_path ?? '', 'event-photo-1.jpg'))).resolves.toBe('image-bytes');
+    await expect(fs.readString(joinPath(capturePath, 'event-photo-1.jpg'))).resolves.toBe('image-bytes');
   });
 
   it('marks recordings with unreadable manifests conflicted without throwing filesystem errors', async () => {
@@ -199,7 +203,8 @@ describe('recording service', () => {
       { db, fs, sourceVersion: 'test' },
     );
     const before = await capturesRepo.get(db, created.meta.id);
-    await fs.delete(joinPath(before?.local_path ?? '', 'manifest.json'));
+    const beforePath = before ? resolveCaptureLocalPath(fs, before.local_path, before.id) : '';
+    await fs.delete(joinPath(beforePath, 'manifest.json'));
 
     await expect(loadRecordingDetail(created.meta.id, { db, fs })).resolves.toBeNull();
 

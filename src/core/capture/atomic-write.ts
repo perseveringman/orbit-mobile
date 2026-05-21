@@ -17,6 +17,7 @@ import type { SQLiteDatabaseLike } from '../storage/sqlite';
 import type { CaptureKind } from '../../types/capture';
 import { buildManifest, contentPreview, serializeManifest } from './manifest';
 import { sha256File, sha256String } from './hash';
+import { storedCaptureLocalPath } from './local-path';
 import type {
   CaptureAttachment,
   CaptureManifest,
@@ -156,6 +157,7 @@ export async function createCapture(
   const walPath = joinPath(dirs.wal, `${txnId}.ndjson`);
   const stagingPath = joinPath(dirs.staging, txnId);
   const capturePath = joinPath(dirs.captures, id);
+  const storedLocalPath = storedCaptureLocalPath(id);
 
   const walEntry: WalEntry = {
     op: 'create',
@@ -166,7 +168,7 @@ export async function createCapture(
     content_hash: manifestSha256,
     content_preview: preview,
     byte_size: 0,
-    local_path: capturePath,
+    local_path: storedLocalPath,
     expected_attachments: attachments.map((attachment) => attachment.filename),
     manifest,
   };
@@ -212,7 +214,7 @@ export async function createCapture(
         has_audio: manifest.attachments.some((attachment) => attachment.type === 'audio'),
         has_image: manifest.attachments.some((attachment) => attachment.type === 'image'),
         attachment_count: manifest.attachments.length,
-        local_path: capturePath,
+        local_path: storedLocalPath,
       });
       await eventsRepo.append(txn, id, 'created', { source: 'atomic-write' }, createdAt);
       await opts.afterCaptureInsert?.({

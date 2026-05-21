@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { runMigrations, type Migration } from '@/core/storage/migrations';
+import * as capturesRepo from '@/core/storage/captures-repo';
 import { createTestDb } from '../setup/in-memory-db';
+import { captureInput } from './test-helpers';
 
 describe('storage migrations', () => {
   it('creates all M1 tables and writes schema_version', async () => {
@@ -26,7 +28,7 @@ describe('storage migrations', () => {
     const version = await db.getFirstAsync<{ value: string }>(
       `SELECT value FROM device_info WHERE key = 'schema_version'`,
     );
-    expect(version?.value).toBe('4');
+    expect(version?.value).toBe('5');
   });
 
   it('is idempotent for an already migrated database', async () => {
@@ -38,7 +40,22 @@ describe('storage migrations', () => {
       `SELECT value FROM device_info WHERE key = 'schema_version'`,
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.value).toBe('4');
+    expect(rows[0]?.value).toBe('5');
+  });
+
+  it('normalizes legacy absolute capture local paths', async () => {
+    const db = createTestDb();
+    await runMigrations(db);
+    await capturesRepo.insert(db, captureInput('mob_cap_legacy_path', {
+      local_path: 'file:///var/mobile/Containers/Data/Application/OLD/Documents/captures/mob_cap_legacy_path',
+    }));
+    await db.runAsync(`UPDATE device_info SET value = '4' WHERE key = 'schema_version'`);
+
+    await runMigrations(db);
+
+    await expect(capturesRepo.get(db, 'mob_cap_legacy_path')).resolves.toMatchObject({
+      local_path: 'captures/mob_cap_legacy_path',
+    });
   });
 
   it('rolls back a failed migration without leaving dirty tables or schema_version', async () => {

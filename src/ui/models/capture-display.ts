@@ -1,4 +1,5 @@
 import type { CaptureManifest, ManifestAttachment } from '../../core/capture/types';
+import { resolveCaptureLocalPath } from '../../core/capture/local-path';
 import type { CaptureRow } from '../../types/capture';
 import { expoFileSystem, joinPath, type FileSystemAdapter } from '../../utils/fs';
 
@@ -25,22 +26,24 @@ export async function loadCaptureDisplay(
   row: CaptureRow,
   fs: FileSystemAdapter = expoFileSystem,
 ): Promise<CaptureDisplayModel> {
+  const localPath = resolveCaptureLocalPath(fs, row.local_path, row.id);
   try {
-    const manifestJson = await fs.readString(joinPath(row.local_path, 'manifest.json'));
-    return buildCaptureDisplay(row, JSON.parse(manifestJson) as CaptureManifest);
+    const manifestJson = await fs.readString(joinPath(localPath, 'manifest.json'));
+    return buildCaptureDisplay(row, JSON.parse(manifestJson) as CaptureManifest, localPath);
   } catch {
-    return buildCaptureDisplay(row, null);
+    return buildCaptureDisplay(row, null, localPath);
   }
 }
 
 export function buildCaptureDisplay(
   row: CaptureRow,
   manifest: CaptureManifest | null,
+  localPath = row.local_path,
 ): CaptureDisplayModel {
   const content = (manifest?.content ?? row.content_preview ?? '').trim();
   const attachments = (manifest?.attachments ?? []).map<CaptureDisplayAttachment>((attachment) => ({
     ...attachment,
-    uri: fileUri(joinPath(row.local_path, attachment.filename)),
+    uri: fileUri(joinPath(localPath, attachment.filename)),
     durationLabel: formatDuration(attachment.duration_ms),
     sizeLabel: formatBytes(attachment.byte_size),
   }));

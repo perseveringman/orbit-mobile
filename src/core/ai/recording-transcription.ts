@@ -1,4 +1,5 @@
 import { sha256String } from '../capture/hash';
+import { resolveCaptureLocalPath } from '../capture/local-path';
 import { contentPreview, serializeManifest } from '../capture/manifest';
 import type { CaptureManifest } from '../capture/types';
 import { loadRecordingDetail } from '../recording/recording-service';
@@ -47,7 +48,8 @@ export async function readRecordingAudioBase64(
   if (!capture) {
     throw new Error(`asr.capture_missing:${recordingId}`);
   }
-  const manifest = JSON.parse(await fs.readString(joinPath(capture.local_path, 'manifest.json'))) as CaptureManifest;
+  const localPath = resolveCaptureLocalPath(fs, capture.local_path, capture.id);
+  const manifest = JSON.parse(await fs.readString(joinPath(localPath, 'manifest.json'))) as CaptureManifest;
   const audio = manifest.attachments.find((attachment) => attachment.type === 'audio');
   if (!audio) {
     throw new Error(`asr.audio_missing:${recordingId}`);
@@ -56,7 +58,7 @@ export async function readRecordingAudioBase64(
     throw new Error(`asr.audio_too_large:${audio.byte_size}`);
   }
   return {
-    audioBase64: await fs.readBase64(joinPath(capture.local_path, audio.filename)),
+    audioBase64: await fs.readBase64(joinPath(localPath, audio.filename)),
     filename: audio.filename,
     mime: audio.mime,
     byteSize: audio.byte_size,
@@ -73,8 +75,9 @@ export async function writeRecordingTranscription(
   if (!capture) {
     throw new Error(`asr.capture_missing:${recordingId}`);
   }
-  const manifestPath = joinPath(capture.local_path, 'manifest.json');
-  const transcriptPath = joinPath(capture.local_path, 'final-transcript.json');
+  const localPath = resolveCaptureLocalPath(fs, capture.local_path, capture.id);
+  const manifestPath = joinPath(localPath, 'manifest.json');
+  const transcriptPath = joinPath(localPath, 'final-transcript.json');
   const manifest = JSON.parse(await fs.readString(manifestPath)) as CaptureManifest;
   const previous = await readExistingTranscript(fs, transcriptPath);
   const transcript = buildTranscript(recognition, previous);
@@ -105,9 +108,9 @@ export async function writeRecordingTranscription(
   const manifestContents = serializeManifest(manifest);
   const manifestSha256 = await sha256String(manifestContents);
   await atomicWriteString(fs, manifestPath, manifestContents);
-  await atomicWriteString(fs, joinPath(capture.local_path, 'manifest.json.sha256'), manifestSha256);
+  await atomicWriteString(fs, joinPath(localPath, 'manifest.json.sha256'), manifestSha256);
   await capturesRepo.updateLocalMetadata(db, recordingId, {
-    byte_size: await directorySize(fs, capture.local_path),
+    byte_size: await directorySize(fs, localPath),
     content_hash: manifestSha256,
     content_preview: contentPreview(manifest.content),
   });

@@ -16,13 +16,20 @@ import * as initial from './001_initial';
 import * as recordings from './002_recordings';
 import * as recordingAnnotations from './003_recording_annotations';
 import * as aiTasks from './004_ai_tasks';
+import * as relativeCapturePaths from './005_relative_capture_paths';
 
 export interface Migration {
   version: number;
   up(db: SQLiteDatabaseLike): Promise<void>;
 }
 
-const MIGRATIONS: readonly Migration[] = [initial, recordings, recordingAnnotations, aiTasks];
+const MIGRATIONS: readonly Migration[] = [
+  initial,
+  recordings,
+  recordingAnnotations,
+  aiTasks,
+  relativeCapturePaths,
+];
 
 export async function runMigrations(
   db: SQLiteDatabaseLike,

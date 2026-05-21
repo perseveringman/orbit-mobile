@@ -1,4 +1,5 @@
 import { createCapture } from '../capture/atomic-write';
+import { resolveCaptureLocalPath, storedCaptureLocalPath } from '../capture/local-path';
 import {
   enqueueRecordingNotesAiTask,
   enqueueRecordingProofreadAiTask,
@@ -259,9 +260,10 @@ export async function listRecordingMetas(
     const meta = recordingsRepo.toRecordingMeta(row);
     const capture = await capturesRepo.get(db, row.id);
     if (!capture) return meta;
+    const localPath = await usableCapturePath(db, fs, capture);
     return {
       ...meta,
-      waveform_samples: await readWaveformSamples(fs, capture.local_path),
+      waveform_samples: await readWaveformSamples(fs, localPath),
     };
   }));
 }
@@ -278,27 +280,28 @@ export async function loadRecordingDetail(
   ]);
   if (!recording || !capture) return null;
 
-  const manifest = await readCaptureManifest(fs, capture.local_path);
+  const localPath = await usableCapturePath(db, fs, capture);
+  const manifest = await readCaptureManifest(fs, localPath);
   if (!manifest) {
     await markLocalCaptureIncomplete(db, capture, 'recording_manifest_unreadable');
     return null;
   }
   const transcript = await readJsonAttachment<FinalTranscript>(
     fs,
-    capture.local_path,
+    localPath,
     manifest,
     'final-transcript.json',
   ) ?? fallbackTranscript(manifest.content, recording.duration_ms);
   const outline = await readJsonAttachment<OutlineItem[]>(
     fs,
-    capture.local_path,
+    localPath,
     manifest,
     'outline.json',
   ) ?? buildOutline(transcript);
-  const derivatives = await readDerivativeMap(fs, capture.local_path, manifest);
-  const waveformSamples = await readWaveformSamples(fs, capture.local_path, manifest);
+  const derivatives = await readDerivativeMap(fs, localPath, manifest);
+  const waveformSamples = await readWaveformSamples(fs, localPath, manifest);
   const audio = manifest.attachments.find((attachment) => attachment.type === 'audio');
-  const audioPath = audio ? joinPath(capture.local_path, audio.filename) : null;
+  const audioPath = audio ? joinPath(localPath, audio.filename) : null;
   const audioInfo = audioPath ? await fs.getInfo(audioPath) : null;
 
   return {
@@ -314,6 +317,19 @@ export async function loadRecordingDetail(
     transcript,
     derivatives,
   };
+}
+
+async function usableCapturePath(
+  db: SQLiteDatabaseLike,
+  fs: FileSystemAdapter,
+  capture: CaptureRow,
+): Promise<string> {
+  const localPath = resolveCaptureLocalPath(fs, capture.local_path, capture.id);
+  const canonicalPath = storedCaptureLocalPath(capture.id);
+  if (capture.local_path !== canonicalPath) {
+    await capturesRepo.updateLocalPath(db, capture.id, canonicalPath).catch(() => undefined);
+  }
+  return localPath;
 }
 
 function buildFinalTranscript(input: CreateRecordingInput): FinalTranscript {

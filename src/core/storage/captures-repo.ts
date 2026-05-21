@@ -225,6 +225,14 @@ export async function updateLocalMetadata(
   await db.runAsync(`UPDATE captures SET ${assignments.join(', ')} WHERE id = ?`, params);
 }
 
+export async function updateLocalPath(
+  db: SQLiteDatabaseLike,
+  id: string,
+  localPath: string,
+): Promise<void> {
+  await db.runAsync(`UPDATE captures SET local_path = ? WHERE id = ?`, [localPath, id]);
+}
+
 export async function markDeleted(db: SQLiteDatabaseLike, id: string): Promise<void> {
   await db.runAsync(`UPDATE captures SET deleted_locally = 1 WHERE id = ?`, [id]);
 }

@@ -9,6 +9,7 @@ export interface ImportX1UsbAudioOptions {
   db?: SQLiteDatabaseLike;
   fs?: FileSystemAdapter;
   sourceVersion?: string;
+  detectDurationMs?: (uri: string) => Promise<number | null>;
 }
 
 export interface X1UsbPickedAudioFile {
@@ -19,6 +20,16 @@ export interface X1UsbPickedAudioFile {
   byteSize?: number;
 }
 
+export interface X1UsbImportedAudioFile {
+  recordingId: string;
+  name: string;
+  title: string;
+  byteSize?: number;
+  durationMs: number;
+  importedAt: string;
+  transferMode?: string;
+}
+
 export async function importX1UsbAudioFile(
   file: X1UsbPickedAudioFile,
   options: ImportX1UsbAudioOptions = {},
@@ -27,6 +38,7 @@ export async function importX1UsbAudioFile(
   const importedAt = new Date().toISOString();
   const sourceName = x1ImportNameForPickedFile(file);
   const recordedAt = startedAtFromFilename(sourceName) ?? importedAt;
+  const durationMs = await detectAudioDurationMs(file.uri, options.detectDurationMs) ?? 0;
   return createRecordingCapture(
     {
       title: titleFromFilename(sourceName),
@@ -34,7 +46,7 @@ export async function importX1UsbAudioFile(
       audioFilename: audioAttachmentFilename(file.filename || sourceName),
       audioMime: file.mime || mimeFromFilename(sourceName),
       recordedAt,
-      durationMs: 0,
+      durationMs,
       startedAt: importedAt,
       languageHints: [],
       partials: [],
@@ -46,6 +58,7 @@ export async function importX1UsbAudioFile(
         device_model: 'newman-x1',
         file_name: sourceName,
         byte_size: file.byteSize,
+        duration_ms: durationMs || undefined,
         imported_at: importedAt,
         transfer_mode: 'usb_disk',
       },
@@ -56,6 +69,48 @@ export async function importX1UsbAudioFile(
       sourceVersion: options.sourceVersion ?? '0.0.0',
     },
   );
+}
+
+export async function listImportedX1UsbAudioFiles(
+  options: { db?: SQLiteDatabaseLike } = {},
+): Promise<X1UsbImportedAudioFile[]> {
+  const db = options.db ?? (await openDb());
+  const rows = await db.getAllAsync<{
+    recording_id: string;
+    title: string;
+    duration_ms: number;
+    name: string | null;
+    payload_json: string;
+    imported_at: string;
+  }>(
+    `SELECT recording_annotations.recording_id AS recording_id,
+            recordings.title AS title,
+            recordings.duration_ms AS duration_ms,
+            recording_annotations.target_id AS name,
+            recording_annotations.payload_json AS payload_json,
+            recording_annotations.updated_at AS imported_at
+     FROM recording_annotations
+     JOIN recordings ON recordings.id = recording_annotations.recording_id
+     JOIN captures ON captures.id = recording_annotations.recording_id
+     WHERE recording_annotations.kind = ?
+       AND captures.deleted_locally = 0
+     ORDER BY recording_annotations.updated_at DESC, captures.created_at DESC`,
+    ['x1_import'],
+  );
+  return rows.map((row) => {
+    const payload = parsePayload(row.payload_json);
+    const payloadName = stringPayloadValue(payload, 'file_name');
+    const name = row.name || payloadName || inferX1FilenameFromTitle(row.title) || row.title;
+    return {
+      recordingId: row.recording_id,
+      name,
+      title: row.title,
+      byteSize: numberPayloadValue(payload, 'byte_size'),
+      durationMs: numberPayloadValue(payload, 'duration_ms') ?? row.duration_ms,
+      importedAt: stringPayloadValue(payload, 'imported_at') ?? row.imported_at,
+      transferMode: stringPayloadValue(payload, 'transfer_mode') ?? undefined,
+    };
+  });
 }
 
 export async function listImportedX1AudioFileNames(
@@ -144,4 +199,46 @@ function startedAtFromFilename(filename: string): string | null {
   );
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString();
+}
+
+async function detectAudioDurationMs(
+  uri: string,
+  detector?: (uri: string) => Promise<number | null>,
+): Promise<number | null> {
+  try {
+    if (detector) {
+      return positiveMs(await detector(uri));
+    }
+    const playback = await import('../audio/playback');
+    return positiveMs(await playback.readAudioDurationMs(uri));
+  } catch {
+    return null;
+  }
+}
+
+function positiveMs(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : null;
+}
+
+function parsePayload(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function stringPayloadValue(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function numberPayloadValue(payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }

@@ -1,4 +1,5 @@
 import { sha256String } from '../capture/hash';
+import { resolveCaptureLocalPath } from '../capture/local-path';
 import { contentPreview, serializeManifest } from '../capture/manifest';
 import type { CaptureManifest } from '../capture/types';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
@@ -92,8 +93,9 @@ export async function acceptTranscriptCorrections(
     return { accepted: 0, skipped: 0 };
   }
 
-  const manifestPath = joinPath(capture.local_path, 'manifest.json');
-  const transcriptPath = joinPath(capture.local_path, 'final-transcript.json');
+  const localPath = resolveCaptureLocalPath(fs, capture.local_path, capture.id);
+  const manifestPath = joinPath(localPath, 'manifest.json');
+  const transcriptPath = joinPath(localPath, 'final-transcript.json');
   const manifest = JSON.parse(await fs.readString(manifestPath)) as CaptureManifest;
   const transcript = JSON.parse(await fs.readString(transcriptPath)) as RecordingDetail['transcript'];
   const bySegment = new Map<number, TranscriptSegment>(
@@ -142,9 +144,9 @@ export async function acceptTranscriptCorrections(
   const manifestContents = serializeManifest(manifest);
   const manifestSha256 = await sha256String(manifestContents);
   await atomicWriteString(fs, manifestPath, manifestContents);
-  await atomicWriteString(fs, joinPath(capture.local_path, 'manifest.json.sha256'), manifestSha256);
+  await atomicWriteString(fs, joinPath(localPath, 'manifest.json.sha256'), manifestSha256);
   await capturesRepo.updateLocalMetadata(db, recordingId, {
-    byte_size: await directorySize(fs, capture.local_path),
+    byte_size: await directorySize(fs, localPath),
     content_hash: manifestSha256,
     content_preview: contentPreview(manifest.content),
   });

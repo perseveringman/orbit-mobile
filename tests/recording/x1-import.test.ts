@@ -11,7 +11,9 @@ vi.mock('expo-sqlite', () => ({
 import {
   importX1UsbAudioFile,
   listImportedX1AudioFileNames,
+  listImportedX1UsbAudioFiles,
 } from '@/core/recorder-device/x1-usb-import';
+import { resolveCaptureLocalPath } from '@/core/capture/local-path';
 import * as capturesRepo from '@/core/storage/captures-repo';
 import { setValue } from '@/core/storage/device-info';
 import * as recordingsRepo from '@/core/storage/recordings-repo';
@@ -34,17 +36,20 @@ describe('x1 import', () => {
         mime: 'audio/mpeg',
         uri: '/tmp/20260521123045.mp3',
       },
-      { db, fs, sourceVersion: 'test' },
+      { db, fs, sourceVersion: 'test', detectDurationMs: () => Promise.resolve(123_000) },
     );
 
     const capture = await capturesRepo.get(db, detail.meta.id);
+    const capturePath = capture ? resolveCaptureLocalPath(fs, capture.local_path, capture.id) : '';
     const recording = await recordingsRepo.get(db, detail.meta.id);
     const importedNames = await listImportedX1AudioFileNames({ db });
-    const manifest = JSON.parse(await fs.readString(joinPath(capture?.local_path ?? '', 'manifest.json'))) as {
+    const importedRows = await listImportedX1UsbAudioFiles({ db });
+    const manifest = JSON.parse(await fs.readString(joinPath(capturePath, 'manifest.json'))) as {
       recording?: {
         source?: {
           file_name?: string;
           transfer_mode?: string;
+          duration_ms?: number;
         };
       };
     };
@@ -55,15 +60,21 @@ describe('x1 import', () => {
       kind: 'recording',
     });
     expect(recording).toMatchObject({
-      duration_ms: 0,
+      duration_ms: 123_000,
       final_state: 'offline_queued',
       partial_provider: 'x1-import',
     });
     expect(importedNames.has('20260521123045.mp3')).toBe(true);
+    expect(importedRows[0]).toMatchObject({
+      name: '20260521123045.mp3',
+      durationMs: 123_000,
+      transferMode: 'usb_disk',
+    });
     expect(manifest.recording?.source).toMatchObject({
       file_name: '20260521123045.mp3',
+      duration_ms: 123_000,
       transfer_mode: 'usb_disk',
     });
-    await expect(fs.readString(joinPath(capture?.local_path ?? '', 'audio.mp3'))).resolves.toBe('x1-audio-bytes');
+    await expect(fs.readString(joinPath(capturePath, 'audio.mp3'))).resolves.toBe('x1-audio-bytes');
   });
 });

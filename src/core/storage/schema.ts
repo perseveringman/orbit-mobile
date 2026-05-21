@@ -9,7 +9,7 @@
  *
  */
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 export const CREATE_CAPTURES = `
 CREATE TABLE IF NOT EXISTS captures (

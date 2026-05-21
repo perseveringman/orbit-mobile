@@ -1,5 +1,7 @@
 import type { CaptureRow } from '../../types/capture';
 import * as iCloudBridge from '../../native/icloud-bridge';
+import { resolveCaptureLocalPath } from '../capture/local-path';
+import { expoFileSystem } from '../../utils/fs';
 
 export interface AckInfo {
   schema_version?: 1 | 2;
@@ -71,7 +73,8 @@ export class NativeICloudTransport implements ICloudTransport {
 
   async uploadCapture(capture: CaptureRow): Promise<UploadResult> {
     const remotePath = inboxPath(capture.id);
-    const status = await iCloudBridge.copyToICloud(capture.local_path, remotePath);
+    const localPath = resolveCaptureLocalPath(expoFileSystem, capture.local_path, capture.id);
+    const status = await iCloudBridge.copyToICloud(localPath, remotePath);
     return {
       remotePath,
       uploaded: status.exists && !status.error,

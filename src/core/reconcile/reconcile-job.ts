@@ -22,8 +22,10 @@ import * as capturesRepo from '../storage/captures-repo';
 import * as eventsRepo from '../storage/events-repo';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
 import { directorySize, baseDirs, runExclusive } from '../capture/atomic-write';
+import { resolveCaptureLocalPath, storedCaptureLocalPath } from '../capture/local-path';
 import { validateManifest } from '../capture/manifest';
 import type { CaptureManifest } from '../capture/types';
+import type { CaptureRow, SyncState } from '../../types/capture';
 import type { FileSystemAdapter } from '../../utils/fs';
 import { expoFileSystem, joinPath } from '../../utils/fs';
 import { isoNow } from '../../utils/time';
@@ -110,6 +112,8 @@ export async function runReconcile(opts: {
       if (!existing) {
         await backfillCapture(opts.db, fs, capturePath, manifest);
         result.sqliteBackfilled += 1;
+      } else if (existing.local_path !== storedCaptureLocalPath(manifest.id)) {
+        await capturesRepo.updateLocalPath(opts.db, manifest.id, storedCaptureLocalPath(manifest.id));
       }
     } catch {
       await moveToDeadLetter(fs, capturePath, dirs.deadLetter);
@@ -129,7 +133,9 @@ export async function runReconcile(opts: {
   }
 
   for (const row of await capturesRepo.list(opts.db)) {
-    if (await isReadableCompleteCapture(fs, row.local_path)) {
+    const resolvedPath = resolveCaptureLocalPath(fs, row.local_path, row.id);
+    if (await isReadableCompleteCapture(fs, resolvedPath)) {
+      await repairReadableCaptureRow(opts.db, row, resolvedPath);
       continue;
     }
     if (row.sync_state === 'conflicted') {
@@ -202,7 +208,7 @@ async function backfillCapture(
       has_audio: manifest.attachments.some((attachment) => attachment.type === 'audio'),
       has_image: manifest.attachments.some((attachment) => attachment.type === 'image'),
       attachment_count: manifest.attachments.length,
-      local_path: capturePath,
+      local_path: storedCaptureLocalPath(manifest.id),
     });
     await eventsRepo.append(txn, manifest.id, 'created', { source: 'reconcile' }, isoNow());
   });
@@ -219,4 +225,50 @@ async function moveToDeadLetter(
   }
   await fs.ensureDir(deadLetterDir);
   await fs.move(capturePath, joinPath(deadLetterDir, id));
+}
+
+async function repairReadableCaptureRow(
+  db: SQLiteDatabaseLike,
+  row: CaptureRow,
+  resolvedPath: string,
+): Promise<void> {
+  const canonicalPath = storedCaptureLocalPath(row.id);
+  if (row.local_path !== canonicalPath) {
+    await capturesRepo.updateLocalPath(db, row.id, canonicalPath);
+    await eventsRepo.append(db, row.id, 'reset', {
+      from: 'local_path',
+      old_path: row.local_path,
+      resolved_path: resolvedPath,
+    }, isoNow());
+  }
+
+  if (!isRecoverableLocalConflict(row)) {
+    return;
+  }
+
+  const nextState = recoveredSyncState(row);
+  await capturesRepo.updateSyncState(db, row.id, {
+    sync_state: nextState,
+    sync_last_error: null,
+    sync_next_retry_at: null,
+  });
+  await eventsRepo.append(db, row.id, 'reset', {
+    from: 'conflicted',
+    reason: row.sync_last_error,
+    to: nextState,
+  }, isoNow());
+}
+
+function isRecoverableLocalConflict(row: CaptureRow): boolean {
+  return row.sync_state === 'conflicted'
+    && (
+      row.sync_last_error === 'local_capture_incomplete'
+      || row.sync_last_error === 'recording_manifest_unreadable'
+    );
+}
+
+function recoveredSyncState(row: CaptureRow): SyncState {
+  if (row.acked_at || row.ack_vault_path) return 'acked';
+  if (row.uploaded_at) return 'uploaded';
+  return 'pending';
 }

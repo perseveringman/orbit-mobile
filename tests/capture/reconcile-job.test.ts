@@ -75,4 +75,40 @@ describe('reconcile job', () => {
       sync_last_error: 'local_capture_incomplete',
     });
   });
+
+  it('repairs stale absolute capture paths and recovers local conflicts', async () => {
+    const db = await createMigratedTestDb();
+    const fs = new MemoryFileSystem();
+    await setValue(db, 'device_id', 'device-1');
+
+    await createTextCapture(
+      { content: 'still here' },
+      {
+        db,
+        fs,
+        id: 'mob_cap_stale_path',
+        txnId: 'txn_stale_path',
+        now: new Date('2026-05-07T00:00:02.000Z'),
+      },
+    );
+    await capturesRepo.updateLocalPath(
+      db,
+      'mob_cap_stale_path',
+      'file:///var/mobile/Containers/Data/Application/OLD/Documents/captures/mob_cap_stale_path',
+    );
+    await capturesRepo.updateSyncState(db, 'mob_cap_stale_path', {
+      sync_state: 'conflicted',
+      sync_last_error: 'local_capture_incomplete',
+      uploaded_at: '2026-05-07T00:01:00.000Z',
+      acked_at: '2026-05-07T00:02:00.000Z',
+      ack_vault_path: 'notes/still-here.md',
+    });
+
+    await expect(runReconcile({ db, fs })).resolves.toMatchObject({ localConflicted: 0 });
+    await expect(capturesRepo.get(db, 'mob_cap_stale_path')).resolves.toMatchObject({
+      local_path: 'captures/mob_cap_stale_path',
+      sync_state: 'acked',
+      sync_last_error: null,
+    });
+  });
 });

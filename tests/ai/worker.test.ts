@@ -6,6 +6,7 @@ import {
   acceptTranscriptCorrections,
   listPendingTranscriptCorrections,
 } from '@/core/ai/transcript-proofread';
+import { resolveCaptureLocalPath } from '@/core/capture/local-path';
 import { createRecordingCapture, loadRecordingDetail } from '@/core/recording/recording-service';
 import { setAiHotwords, setVolcengineAsrEnabled } from '@/core/settings/app-settings';
 import * as aiTasksRepo from '@/core/storage/ai-tasks-repo';
@@ -67,8 +68,9 @@ describe('AI worker', () => {
     const task = await aiTasksRepo.getByCapture(db, created.meta.id);
     const detail = await loadRecordingDetail(created.meta.id, { db, fs });
     const capture = await capturesRepo.get(db, created.meta.id);
+    const capturePath = capture ? resolveCaptureLocalPath(fs, capture.local_path, capture.id) : '';
     const recording = await recordingsRepo.get(db, created.meta.id);
-    const manifest = JSON.parse(await fs.readString(`${capture?.local_path}/manifest.json`)) as {
+    const manifest = JSON.parse(await fs.readString(`${capturePath}/manifest.json`)) as {
       content: string;
     };
 
@@ -80,8 +82,8 @@ describe('AI worker', () => {
     expect(capture?.content_preview).toContain('本地录音方案评审');
     expect(detail?.derivatives.summary?.provider).toBe('deepseek-v4-flash');
     expect(detail?.derivatives.summary?.body).toContain('DeepSeek 生成的总结');
-    await expect(fs.readString(`${capture?.local_path}/summary.json`)).resolves.toContain('deepseek-v4-flash');
-    await expect(fs.readString(`${capture?.local_path}/manifest.json.sha256`)).resolves.toMatch(/^[a-f0-9]{64}$/);
+    await expect(fs.readString(`${capturePath}/summary.json`)).resolves.toContain('deepseek-v4-flash');
+    await expect(fs.readString(`${capturePath}/manifest.json.sha256`)).resolves.toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('does not enqueue text AI generation when no usable transcript exists', async () => {
@@ -194,7 +196,8 @@ describe('AI worker', () => {
     const detail = await loadRecordingDetail(created.meta.id, { db, fs });
     const recording = await recordingsRepo.get(db, created.meta.id);
     const capture = await capturesRepo.get(db, created.meta.id);
-    const manifest = JSON.parse(await fs.readString(`${capture?.local_path}/manifest.json`)) as {
+    const capturePath = capture ? resolveCaptureLocalPath(fs, capture.local_path, capture.id) : '';
+    const manifest = JSON.parse(await fs.readString(`${capturePath}/manifest.json`)) as {
       content: string;
       attachments: Array<{ type: string; transcription?: string; transcription_source?: string }>;
       recording?: { diarization_provider?: string | null; speakers?: Array<{ id: string }> };
@@ -293,7 +296,8 @@ describe('AI worker', () => {
     await acceptTranscriptCorrections(db, created.meta.id, [corrections[0]?.id ?? ''], fs);
     const detail = await loadRecordingDetail(created.meta.id, { db, fs });
     const capture = await capturesRepo.get(db, created.meta.id);
-    const manifest = JSON.parse(await fs.readString(`${capture?.local_path}/manifest.json`)) as {
+    const capturePath = capture ? resolveCaptureLocalPath(fs, capture.local_path, capture.id) : '';
+    const manifest = JSON.parse(await fs.readString(`${capturePath}/manifest.json`)) as {
       content: string;
       attachments: Array<{ type: string; transcription?: string }>;
     };

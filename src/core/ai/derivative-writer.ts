@@ -1,5 +1,6 @@
 import type { CaptureManifest } from '../capture/types';
 import { sha256String } from '../capture/hash';
+import { resolveCaptureLocalPath } from '../capture/local-path';
 import { contentPreview } from '../capture/manifest';
 import * as capturesRepo from '../storage/captures-repo';
 import * as recordingsRepo from '../storage/recordings-repo';
@@ -26,7 +27,8 @@ export async function writeAiRecordingNotes(
   if (!capture) {
     throw new Error(`ai.capture_missing:${captureId}`);
   }
-  const manifestPath = joinPath(capture.local_path, 'manifest.json');
+  const localPath = resolveCaptureLocalPath(fs, capture.local_path, capture.id);
+  const manifestPath = joinPath(localPath, 'manifest.json');
   const manifest = JSON.parse(await fs.readString(manifestPath)) as CaptureManifest;
   const files = new Map<string, string>([
     [DERIVATIVE_FILES.outline, `${JSON.stringify(notes.outline, null, 2)}\n`],
@@ -37,7 +39,7 @@ export async function writeAiRecordingNotes(
   ]);
 
   for (const [filename, contents] of files) {
-    await atomicWriteString(fs, joinPath(capture.local_path, filename), contents);
+    await atomicWriteString(fs, joinPath(localPath, filename), contents);
     const attachment = manifest.attachments.find((item) => item.filename === filename);
     if (attachment) {
       attachment.sha256 = await sha256String(contents);
@@ -54,11 +56,11 @@ export async function writeAiRecordingNotes(
   await atomicWriteString(fs, manifestPath, manifestContents);
   await atomicWriteString(
     fs,
-    joinPath(capture.local_path, 'manifest.json.sha256'),
+    joinPath(localPath, 'manifest.json.sha256'),
     manifestSha256,
   );
   await capturesRepo.updateLocalMetadata(db, captureId, {
-    byte_size: await directorySize(fs, capture.local_path),
+    byte_size: await directorySize(fs, localPath),
     content_hash: manifestSha256,
     content_preview: contentPreview(manifest.content),
   });
