@@ -354,6 +354,12 @@ export function X1RecorderDetailScreen(): React.ReactElement {
               onPress={() => router.push('/recording/x1-session')}
             />
             <Button
+              label="U 盘导入"
+              variant="secondary"
+              disabled={Boolean(busy)}
+              onPress={() => router.push('/recording/x1-usb')}
+            />
+            <Button
               label="通信测试"
               variant="secondary"
               disabled={Boolean(busy)}

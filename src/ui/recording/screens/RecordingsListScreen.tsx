@@ -472,13 +472,22 @@ export function RecordingsListScreen({
                 </View>
               )}
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push('/recording/x1-session')}
-              style={({ pressed }) => [styles.entryPrimary, pressed && styles.pressed]}
-            >
-              <Text style={styles.entryPrimaryText}>开始录音</Text>
-            </Pressable>
+            <View style={styles.entryButtonRow}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/recording/x1-session')}
+                style={({ pressed }) => [styles.entryPrimary, styles.entryButtonHalf, pressed && styles.pressed]}
+              >
+                <Text style={styles.entryPrimaryText}>开始录音</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push('/recording/x1-usb')}
+                style={({ pressed }) => [styles.entrySecondaryCompact, styles.entryButtonHalf, pressed && styles.pressed]}
+              >
+                <Text style={styles.entrySecondaryCompactText}>U 盘导入</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
         <Pressable
@@ -962,6 +971,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
   },
+  entryButtonRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  entryButtonHalf: {
+    flex: 1,
+  },
   entrySecondary: {
     alignItems: 'center',
     backgroundColor: colors.bg,
@@ -972,6 +988,19 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   entrySecondaryText: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  entrySecondaryCompact: {
+    alignItems: 'center',
+    backgroundColor: colors.bg,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 10,
+  },
+  entrySecondaryCompactText: {
     color: colors.textPrimary,
     fontSize: 13,
     fontWeight: '900',

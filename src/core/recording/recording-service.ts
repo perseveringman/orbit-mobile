@@ -77,6 +77,7 @@ export interface RecordingSourceMetadata {
   byte_size?: number;
   duration_ms?: number;
   imported_at?: string;
+  transfer_mode?: 'ble' | 'realtime' | 'share' | 'usb_disk';
 }
 
 export interface RecordingServiceOptions {

@@ -29,10 +29,10 @@ export async function pickFiles(): Promise<PickedFile[]> {
   });
 }
 
-export async function pickAudioFiles(): Promise<PickedFile[]> {
+export async function pickAudioFiles(options: { multiple?: boolean } = {}): Promise<PickedFile[]> {
   const result = await DocumentPicker.getDocumentAsync({
     copyToCacheDirectory: true,
-    multiple: false,
+    multiple: options.multiple ?? false,
     type: ['audio/*', 'video/mp4', 'video/quicktime', 'application/ogg'],
   });
   if (result.canceled) return [];

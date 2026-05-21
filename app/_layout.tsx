@@ -20,6 +20,7 @@ export default function RootLayout(): React.ReactElement {
         <Stack.Screen name="recording/new" options={{ presentation: 'modal' }} />
         <Stack.Screen name="recording/x1" />
         <Stack.Screen name="recording/x1-debug" />
+        <Stack.Screen name="recording/x1-usb" />
         <Stack.Screen name="recording/[id]/index" />
         <Stack.Screen name="recording/[id]/notes" />
         <Stack.Screen name="recording/[id]/ask" options={{ presentation: 'modal' }} />

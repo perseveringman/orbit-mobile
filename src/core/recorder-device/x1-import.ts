@@ -4,11 +4,12 @@ import { createRecordingCapture, type LivePartialInput } from '../recording/reco
 import { recordingTimestampTitle } from '../recording/title';
 import { openDb } from '../storage/db';
 import type { SQLiteDatabaseLike } from '../storage/sqlite';
-import { expoFileSystem } from '../../utils/fs';
+import { expoFileSystem, type FileSystemAdapter } from '../../utils/fs';
 import type { RecordingDetail } from '../../types/recording';
 
 export interface ImportX1AudioOptions {
   db?: SQLiteDatabaseLike;
+  fs?: FileSystemAdapter;
   sourceVersion?: string;
   transcriptText?: string;
   partials?: LivePartialInput[];
@@ -86,10 +87,12 @@ export async function saveImportedX1Audio(
         byte_size: file.byteSize || imported.byteSize,
         duration_ms: file.durationMs || imported.durationMs,
         imported_at: startedAt,
+        transfer_mode: 'ble',
       },
     },
     {
       db,
+      fs: options.fs,
       sourceVersion: options.sourceVersion ?? '0.0.0',
     },
   );
@@ -135,10 +138,12 @@ export async function saveRealtimeX1Audio(
         byte_size: imported.byteSize,
         duration_ms: imported.durationMs,
         imported_at: new Date().toISOString(),
+        transfer_mode: 'realtime',
       },
     },
     {
       db,
+      fs: options.fs,
       sourceVersion: options.sourceVersion ?? '0.0.0',
     },
   );
